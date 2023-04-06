@@ -89,7 +89,7 @@ function drawMap(map) {
 }
 
 function drawUnits() {
-    var changes = getChanges();
+    var changes = getState();
 
     for (let unit of state.units) {
         for (let vertex of map.vertices) {
@@ -113,7 +113,7 @@ function drawUnits() {
     }
 }
 
-function getChanges() {
+function getState() {
     var hash = window.location.hash;
     if (hash) {
         var hashSplit = hash.split('#')[1];
@@ -159,6 +159,7 @@ function addOrder(unit, action, originVertex, destinationVertex) {
         }
     }
     orders.push({"country": playerCountry, "unitType": unit.type, "action": action, "origin": originVertex, "destination": destinationVertex});
+    document.getElementById("ordersString").innerText = ordersAsString();
 }
 
 function validMove(unit, destinationVertex) {
@@ -172,10 +173,18 @@ function validMove(unit, destinationVertex) {
 }
 
 function resolveOrders() {
-    for (var order of orders) {
-        if (noConflictingOrders(order)) {
-            performOrder(order);
+    if (orders) {
+        for (var order of orders) {
+            if (noConflictingOrders(order)) {
+                performOrder(order);
+            }
         }
+
+        orders = [];
+        ctx.clearRect(0,0,400,400);
+        drawMap(map);
+        drawUnits();
+        document.getElementById("ordersString").innerText = ordersAsString();
     }
 }
 
@@ -189,9 +198,17 @@ function performOrder(order) {
             unit.vertexName = order.destination;
         }
     }
-    ctx.clearRect(0,0,400,400);
-    drawMap(map);
-    drawUnits();
+}
+
+function ordersAsString() {
+    let result = "";
+    if (orders) {
+        console.log(orders);
+        for (let order of orders) {
+            result += order.action + "\n";
+        }
+    }
+    return result;
 }
 
 drawMap(map);
@@ -225,7 +242,6 @@ canvas.addEventListener('click', function(event) {
         if (areAdjacent(actionOriginVertex, vertex.name) && validMove(actionUnit, vertex)) {
             addOrder(actionUnit, "move", actionOriginVertex, vertex.name);
             action += actionOriginVertex + " -> " + vertex.name;
-            document.getElementById("ordersString").innerText += action + "\n";
         }
 
         action = "";
