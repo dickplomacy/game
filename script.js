@@ -6,13 +6,13 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const map = {
   "vertices": [
-    { "name": "Bel", "x": 150, "y": 150, "type": "land"},
+    { "name": "Bel", "x": 150, "y": 150, "type": "coast"},
     { "name": "Bur", "x": 200, "y": 300, "type": "land"},
     { "name": "Hel", "x": 250, "y": 50, "type": "sea"},
-    { "name": "Hol", "x": 200, "y": 100, "type": "land"},
-    { "name": "Kie", "x": 300, "y": 100, "type": "land"},
+    { "name": "Hol", "x": 200, "y": 100, "type": "coast"},
+    { "name": "Kie", "x": 300, "y": 100, "type": "coast"},
     { "name": "Nth", "x": 150, "y": 50, "type": "sea"},
-    { "name": "Pic", "x": 50,  "y": 250, "type": "land"},
+    { "name": "Pic", "x": 50,  "y": 250, "type": "coast"},
     { "name": "Ruh", "x": 300, "y": 200, "type": "land"},
   ],
   "edges": [
@@ -59,6 +59,8 @@ function drawMap(map) {
   for (let edge of map.edges) {
     const fromVertex = map.vertices.find(vertex => vertex.name === edge.from);
     const toVertex = map.vertices.find(vertex => vertex.name === edge.to);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'black'; // set stroke color to black
     ctx.beginPath();
     ctx.moveTo(fromVertex.x, fromVertex.y);
     ctx.lineTo(toVertex.x, toVertex.y);
@@ -71,7 +73,7 @@ function drawMap(map) {
     ctx.strokeStyle = 'black'; // set stroke color to black
     ctx.lineWidth = lineWidth; // set stroke width to 2 pixels
     ctx.strokeRect(vertex.x - vertexSideLength/2, vertex.y - vertexSideLength/2, vertexSideLength, vertexSideLength); // draw a rectangular border
-    if (vertex.type === "land") {
+    if (vertex.type === "land" || vertex.type === "coast") {
         ctx.strokeStyle = "brown";
     }
     else if (vertex.type === "sea") {
@@ -120,10 +122,10 @@ function getChanges() {
     }
 }
 
-function getClickedvertexName(mouseX, mouseY) {
+function getClickedVertex(mouseX, mouseY) {
     for (let vertex of map.vertices) {
         if ((vertex.x - vertexSideLength/2) < mouseX && mouseX < (vertex.x + vertexSideLength/2) && (vertex.y - vertexSideLength/2) < mouseY && mouseY < (vertex.y + vertexSideLength/2)) {
-            return vertex.name;
+            return vertex;
         }
     }
 }
@@ -159,6 +161,39 @@ function addOrder(unit, action, originVertex, destinationVertex) {
     orders.push({"country": playerCountry, "unitType": unit.type, "action": action, "origin": originVertex, "destination": destinationVertex});
 }
 
+function validMove(unit, destinationVertex) {
+    if ((destinationVertex.type === "land" && unit.type === "F") 
+    || (destinationVertex.type === "sea") && unit.type === "A") {
+        return false;
+    }
+    else {
+        return true;
+    }
+}
+
+function resolveOrders() {
+    for (var order of orders) {
+        if (noConflictingOrders(order)) {
+            performOrder(order);
+        }
+    }
+}
+
+function noConflictingOrders(order) {
+    return true; //todo
+}
+
+function performOrder(order) {
+    for (unit of state.units) {
+        if (unit.vertexName === order.origin) {
+            unit.vertexName = order.destination;
+        }
+    }
+    ctx.clearRect(0,0,400,400);
+    drawMap(map);
+    drawUnits();
+}
+
 drawMap(map);
 drawUnits();
 
@@ -168,31 +203,33 @@ window.onhashchange = function() {
 };
 
 let action = "";
-let actionVertex = -1;
+let actionOriginVertex = -1;
 let actionUnit = {};
+let friendlyUnit = {};
 
 canvas.addEventListener('click', function(event) {
     const rect = canvas.getBoundingClientRect();
     const mouseX = event.clientX - rect.left;
     const mouseY = event.clientY - rect.top;
 
-    let vertexName = getClickedvertexName(mouseX, mouseY);
-    let friendlyUnit = getFriendlyUnitOnVertex(vertexName)
-    if (friendlyUnit) {
+    let vertex = getClickedVertex(mouseX, mouseY);
+    
+    friendlyUnit = getFriendlyUnitOnVertex(vertex.name)
+    
+    if (friendlyUnit && !action) {
         actionUnit = friendlyUnit;
         action = friendlyUnit.country + ": " + friendlyUnit.type + " ";
-        actionVertex = friendlyUnit.vertexName;
+        actionOriginVertex = friendlyUnit.vertexName;
     }
     else if (action ) {
-        if (areAdjacent(actionVertex, vertexName)) {
-            action += actionVertex + " -> " + vertexName;
-
-            addOrder(actionUnit, "move", actionVertex, vertexName);
+        if (areAdjacent(actionOriginVertex, vertex.name) && validMove(actionUnit, vertex)) {
+            addOrder(actionUnit, "move", actionOriginVertex, vertex.name);
+            action += actionOriginVertex + " -> " + vertex.name;
             document.getElementById("ordersString").innerText += action + "\n";
         }
 
         action = "";
-        actionVertex = -1;
+        actionOriginVertex = -1;
         actionUnit = {};
     }
 });
