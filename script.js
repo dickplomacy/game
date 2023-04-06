@@ -43,7 +43,8 @@ const initialState = {
         { "country": "GER", "type": "F", "vertexName": "Kie"},
         { "country": "GER", "type": "A", "vertexName": "Hol"},
         { "country": "FRA", "type": "A", "vertexName": "Bel"},
-    ]
+    ],
+    "latestOrders": {}
 }
 
 let state = initialState;
@@ -180,10 +181,12 @@ function resolveOrders() {
             }
         }
 
-        orders = [];
+        state.latestOrders = orders;
         ctx.clearRect(0,0,400,400);
         drawMap(map);
         drawUnits();
+        document.getElementById("latestOrders").innerText = ordersAsString();
+        orders = [];
         document.getElementById("ordersString").innerText = ordersAsString();
     }
 }
@@ -205,7 +208,11 @@ function ordersAsString() {
     if (orders) {
         console.log(orders);
         for (let order of orders) {
-            result += order.action + "\n";
+            result += order.country + ": " + order.origin;
+            if (order.action === "move") {
+                result += " -> ";
+            }
+            result += order.destination;
         }
     }
     return result;
