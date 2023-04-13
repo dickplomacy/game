@@ -208,6 +208,16 @@ function hasEnoughSupport(order) {
     return false;
 }
 
+function getOrderAtVertex(vertex) {
+    for (let order of orders) {
+        if (order.origin.name === vertex.name) {
+            return order;
+        }
+    }
+
+    return {};
+}
+
 function performMoveOrder(order) {
     if ((destinationIsContested(order) &&
         hasEnoughSupport(order)) ||
@@ -229,12 +239,24 @@ function ordersAsString() {
         console.log(orders);
         for (let order of orders) {
             result += order.country + ": " + order.unitType + " " + order.origin.name;
-            if (order.action === "move") {
-                result += " -> " + order.destination.name;
-            }
-            else if (order.action === "hold") {
+
+            if (order.action === "hold") {
                 result += " H";
             }
+            else if (order.action === "move") {
+                result += " -> " + order.destination.name;
+            }
+            else if (order.action === "support") {
+                let orderToSupport = getOrderAtVertex(order.destination);
+                result += " S (" + orderToSupport.unitType + " " + orderToSupport.origin.name;
+                if (orderToSupport.action === "move") {
+                    result += " -> " + orderToSupport.destination.name + ")";
+                }
+            }
+            else if (order.action === "convoy") {
+                result += " C " + order.destination.name;
+            }
+
             result += "\n";
         }
     }
@@ -294,18 +316,24 @@ canvas.addEventListener('click', function(event) {
         }
         else {
             orderInProgress = true;
-
-            if (action === "move") {
-                unitOriginVertex = clickedVertex;
-                actionUnit = friendlyUnit;
-            }
+            unitOriginVertex = clickedVertex;
+            actionUnit = friendlyUnit;
         }
     }
     else if (orderInProgress) {
         if (action === "move") {
-            if (areAdjacent(unitOriginVertex, clickedVertex)) {
+            if (areAdjacent(unitOriginVertex, clickedVertex) && validMove(actionUnit, clickedVertex)) {
                 addOrder(actionUnit, "move", unitOriginVertex, clickedVertex);
             }
+        }
+        else if (action === "support") {
+            let orderToSupport = getOrderAtVertex(clickedVertex);
+            if (orderToSupport && areAdjacent(unitOriginVertex, orderToSupport.destination) && validMove(actionUnit, orderToSupport.destination)) {
+                addOrder(actionUnit, "support", unitOriginVertex, clickedVertex);
+            }
+        }
+        else if (action === "convoy") {
+
         }
 
         orderInProgress = false;
