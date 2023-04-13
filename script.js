@@ -40,8 +40,8 @@ let playerCountry = "GER";
 
 const initialState = {
     "units": [
-        { "country": "GER", "type": "F", "vertexName": "Kie"},
-        { "country": "GER", "type": "A", "vertexName": "Hol"},
+        { "country": "GER", "type": "F", "vertexName": "Hol"},
+        { "country": "GER", "type": "A", "vertexName": "Ruh"},
         { "country": "FRA", "type": "A", "vertexName": "Bel"},
     ],
     "latestOrders": {}
@@ -131,9 +131,9 @@ function getClickedVertex(mouseX, mouseY) {
     }
 }
 
-function getFriendlyUnitOnVertex(vertexName) {
+function getFriendlyUnitOnVertex(vertex) {
     for (let unit of state.units) {
-        if (unit.vertexName === vertexName && unit.country === playerCountry) {
+        if (unit.vertexName === vertex.name && unit.country === playerCountry) {
             return unit;
         }
     }
@@ -146,7 +146,7 @@ function selectCountry(countryName) {
 
 function areAdjacent(vertexA, vertexB) {
     for (let vertexPair of map.edges) {
-        if ((vertexPair.from === vertexA && vertexPair.to === vertexB) || (vertexPair.to === vertexA && vertexPair.from === vertexB)) {
+        if ((vertexPair.from === vertexA.name && vertexPair.to === vertexB.name) || (vertexPair.to === vertexA.name && vertexPair.from === vertexB.name)) {
             return true;
         }
     }
@@ -154,11 +154,12 @@ function areAdjacent(vertexA, vertexB) {
 }
 
 function addOrder(unit, action, originVertex, destinationVertex) {
-    for (let order of orders) {
-        if (order.origin === originVertex) {
-            orders.pop();
+    for (let i = 0; i < orders.length; i++) {
+        if (orders[i].origin.name === originVertex.name) {
+            orders.splice(i, 1);
         }
     }
+
     orders.push({"country": playerCountry, "unitType": unit.type, "action": action, "origin": originVertex, "destination": destinationVertex});
     document.getElementById("ordersString").innerText = ordersAsString();
 }
@@ -174,11 +175,11 @@ function validMove(unit, destinationVertex) {
 }
 
 function resolveOrders() {
+    resolveSupport();
+
     if (orders) {
-        for (var order of orders) {
-            if (noConflictingOrders(order)) {
-                performOrder(order);
-            }
+        for (var order of orders) {   
+            performMoveOrder(order);
         }
 
         state.latestOrders = orders;
@@ -191,14 +192,33 @@ function resolveOrders() {
     }
 }
 
-function noConflictingOrders(order) {
-    return true; //todo
+function resolveSupport() {
+    for (let order of orders) {
+        if (order.action === "support") {
+            //asd;
+        }
+    }
 }
 
-function performOrder(order) {
+function destinationIsContested(order) {
+    return false;
+}
+
+function hasEnoughSupport(order) {
+    return false;
+}
+
+function performMoveOrder(order) {
+    if ((destinationIsContested(order) &&
+        hasEnoughSupport(order)) ||
+        !destinationIsContested(order)) {
+    }
     for (unit of state.units) {
-        if (unit.vertexName === order.origin) {
-            unit.vertexName = order.destination;
+        if (unit.country === order.country &&
+            unit.type === order.unitType &&
+            unit.vertexName === order.origin.name
+        ) {
+            unit.vertexName = order.destination.name;
         }
     }
 }
@@ -208,11 +228,14 @@ function ordersAsString() {
     if (orders) {
         console.log(orders);
         for (let order of orders) {
-            result += order.country + ": " + order.origin;
+            result += order.country + ": " + order.unitType + " " + order.origin.name;
             if (order.action === "move") {
-                result += " -> ";
+                result += " -> " + order.destination.name;
             }
-            result += order.destination;
+            else if (order.action === "hold") {
+                result += " H";
+            }
+            result += "\n";
         }
     }
     return result;
@@ -227,7 +250,32 @@ window.onhashchange = function() {
 };
 
 let action = "";
-let actionOriginVertex = -1;
+function setAction (actionInput) {
+    action = actionInput;
+    setButtonColors();
+    if (action === "hold") {
+        document.getElementById("holdbutton").style.backgroundColor = "red";
+    }
+    else if (action === "move") {
+        document.getElementById("movebutton").style.backgroundColor = "red";
+    }
+    else if (action === "support") {
+        document.getElementById("supportbutton").style.backgroundColor = "red";
+    }
+    else if (action === "convoy") {
+        document.getElementById("convoybutton").style.backgroundColor = "red";
+    }
+}
+
+function setButtonColors() {
+    document.getElementById("holdbutton").style.backgroundColor = "pink";
+    document.getElementById("movebutton").style.backgroundColor = "pink";
+    document.getElementById("supportbutton").style.backgroundColor = "pink";
+    document.getElementById("convoybutton").style.backgroundColor = "pink";
+}
+
+let orderInProgress = false;
+let unitOriginVertex = -1;
 let actionUnit = {};
 let friendlyUnit = {};
 
@@ -236,23 +284,81 @@ canvas.addEventListener('click', function(event) {
     const mouseX = event.clientX - rect.left;
     const mouseY = event.clientY - rect.top;
 
-    let vertex = getClickedVertex(mouseX, mouseY);
+    let clickedVertex = getClickedVertex(mouseX, mouseY);
     
-    friendlyUnit = getFriendlyUnitOnVertex(vertex.name)
+    friendlyUnit = getFriendlyUnitOnVertex(clickedVertex)
+
+    if (friendlyUnit && !orderInProgress) {
+        if (action === "hold") {
+            addOrder(friendlyUnit, "hold", clickedVertex, "");
+        }
+        else {
+            orderInProgress = true;
+
+            if (action === "move") {
+                unitOriginVertex = clickedVertex;
+                actionUnit = friendlyUnit;
+            }
+        }
+    }
+    else if (orderInProgress) {
+        if (action === "move") {
+            if (areAdjacent(unitOriginVertex, clickedVertex)) {
+                addOrder(actionUnit, "move", unitOriginVertex, clickedVertex);
+            }
+        }
+
+        orderInProgress = false;
+        unitOriginVertex = -1;
+        actionUnit = {};
+    }
+
+
+
+
+/*
+    else if (friendlyUnit && !orderInProgress) {
+        actionUnit = friendlyUnit;
+        orderInProgress = friendlyUnit.country + ": " + friendlyUnit.type + " ";
+        actionOriginVertex = friendlyUnit.vertexName;
+    }
+    else if (orderInProgress) {
+        if (action === "move") {
+            
+        }
+        else if (action === "support") {
+            
+        }
+        else if (action === "convoy") {
+            
+        }
+
+        orderInProgress = "";
+        actionOriginVertex = "";
+        actionUnit = {};
+    }
+
     
     if (friendlyUnit && !action) {
         actionUnit = friendlyUnit;
         action = friendlyUnit.country + ": " + friendlyUnit.type + " ";
         actionOriginVertex = friendlyUnit.vertexName;
     }
-    else if (action ) {
-        if (areAdjacent(actionOriginVertex, vertex.name) && validMove(actionUnit, vertex)) {
-            addOrder(actionUnit, "move", actionOriginVertex, vertex.name);
-            action += actionOriginVertex + " -> " + vertex.name;
+    else if (action) {
+        if (areAdjacent(actionOriginVertex, vertex.name)) {
+            if (friendlyUnit) {
+                console.log("asdasd");
+            }
+            if (validMove(actionUnit, vertex)) {
+                addOrder(actionUnit, "move", actionOriginVertex, vertex.name);
+                action += actionOriginVertex + " -> " + vertex.name;
+            }
         }
-
         action = "";
         actionOriginVertex = -1;
         actionUnit = {};
     }
+
+*/
+
 });
