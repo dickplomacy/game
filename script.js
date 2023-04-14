@@ -219,18 +219,26 @@ function getOrderAtVertex(vertex) {
 }
 
 function performMoveOrder(order) {
-    if ((destinationIsContested(order) &&
-        hasEnoughSupport(order)) ||
-        !destinationIsContested(order)) {
-    }
-    for (unit of state.units) {
-        if (unit.country === order.country &&
-            unit.type === order.unitType &&
-            unit.vertexName === order.origin.name
-        ) {
-            unit.vertexName = order.destination.name;
+    if (order.action === "move") {
+        if (areAdjacent(order.origin, order.destination) || isConvoyed(order)) {
+            if ((destinationIsContested(order) &&
+                hasEnoughSupport(order)) ||
+                !destinationIsContested(order)) {
+            }
+            for (unit of state.units) {
+                if (unit.country === order.country &&
+                    unit.type === order.unitType &&
+                    unit.vertexName === order.origin.name
+                ) {
+                    unit.vertexName = order.destination.name;
+                }
+            }
         }
     }
+}
+
+function isConvoyed(order) {
+    return false;
 }
 
 function ordersAsString() {
@@ -322,7 +330,7 @@ canvas.addEventListener('click', function(event) {
     }
     else if (orderInProgress) {
         if (action === "move") {
-            if (areAdjacent(unitOriginVertex, clickedVertex) && validMove(actionUnit, clickedVertex)) {
+            if (validMove(actionUnit, clickedVertex)) {
                 addOrder(actionUnit, "move", unitOriginVertex, clickedVertex);
             }
         }
