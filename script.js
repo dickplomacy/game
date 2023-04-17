@@ -8,6 +8,7 @@ const map = {
   "vertices": [
     { "name": "Bel", "x": 150, "y": 150, "type": "coast"},
     { "name": "Bur", "x": 200, "y": 300, "type": "land"},
+    { "name": "Eng", "x": 100, "y": 100, "type": "sea"},
     { "name": "Hel", "x": 250, "y": 50, "type": "sea"},
     { "name": "Hol", "x": 200, "y": 100, "type": "coast"},
     { "name": "Kie", "x": 300, "y": 100, "type": "coast"},
@@ -20,6 +21,10 @@ const map = {
     { "from": "Bel", "to": "Hol" },
     { "from": "Bel", "to": "Pic" },
     { "from": "Bel", "to": "Ruh" },
+
+    { "from": "Eng", "to": "Bel" },
+    { "from": "Eng", "to": "Nth" },
+    { "from": "Eng", "to": "Pic" },
 
     { "from": "Bur", "to": "Pic" },
     { "from": "Bur", "to": "Ruh" },
@@ -44,7 +49,7 @@ const initialState = {
         { "country": "GER", "type": "A", "vertexName": "Ruh"},
         { "country": "FRA", "type": "A", "vertexName": "Bel"},
     ],
-    "latestOrders": {}
+    "latestOrders": []
 }
 
 let state = initialState;
@@ -153,15 +158,15 @@ function areAdjacent(vertexA, vertexB) {
     return false;
 }
 
-function addOrder(unit, action, originVertex, destinationVertex) {
+function addOrder(unit, action, originVertex, destinationVertex, support) {
     for (let i = 0; i < orders.length; i++) {
         if (orders[i].origin.name === originVertex.name) {
             orders.splice(i, 1);
         }
     }
 
-    orders.push({"country": playerCountry, "unitType": unit.type, "action": action, "origin": originVertex, "destination": destinationVertex});
-    document.getElementById("ordersString").innerText = ordersAsString();
+    orders.push({"country": playerCountry, "unitType": unit.type, "action": action, "origin": originVertex, "destination": destinationVertex, "support": support});
+    document.getElementById("ordersString").innerText = ordersAsString(orders);
 }
 
 function validMove(unit, destinationVertex) {
@@ -174,42 +179,105 @@ function validMove(unit, destinationVertex) {
     }
 }
 
+function redraw() {
+    ctx.clearRect(0,0,400,400);
+    drawMap(map);
+    drawUnits();
+}
+
 function resolveOrders() {
-    resolveSupport();
-
     if (orders) {
-        for (var order of orders) {   
-            performMoveOrder(order);
-        }
+        addHoldOrders();
+        performUncontestedMoveOrders();
+        resolveSupport();
+        dislodgeUnits();
 
-        state.latestOrders = orders;
-        ctx.clearRect(0,0,400,400);
-        drawMap(map);
-        drawUnits();
-        document.getElementById("latestOrders").innerText = ordersAsString();
+        for (let i = 0; i < orders.length; i++) {
+            state.latestOrders.push(orders[i]);
+        }
+        redraw();
+        document.getElementById("latestOrders").innerText = ordersAsString(state.latestOrders);
         orders = [];
-        document.getElementById("ordersString").innerText = ordersAsString();
+        document.getElementById("ordersString").innerText = ordersAsString(orders);
+    }
+}
+
+function addHoldOrders() {
+    for (let unit of state.units) {
+        let hasOrder = false;
+        for (let order of orders) {
+            if (order.origin.name === unit.vertexName) {
+                hasOrder = true;
+            }
+        }
+        if (!hasOrder) {
+            addOrder(unit, "hold", getVertexFromName(unit.vertexName), "", 0);
+        }
+    }
+}
+
+function getVertexFromName(vertexName) {
+
+    for (let vertex of map.vertices) {
+        if (vertex.name === vertexName) {
+            return vertex;
+        }
+    }
+    return null;
+}
+
+function dislodgeUnits() {
+    for (let order of orders) {
+        //TODO
     }
 }
 
 function resolveSupport() {
-    for (let order of orders) {
-        if (order.action === "support") {
-            //asd;
+    for (let moveOrder of orders) {
+        if (moveOrder.action === "move") {
+            for (let supportOrder of orders) {
+                if (supportOrder.action === "support") {
+                    if (supportOrder.destination === moveOrder.origin) {
+                        moveOrder.support += 1;
+                    }
+                }
+            }
         }
     }
 }
 
-function destinationIsContested(order) {
-    return false;
+function performUncontestedMoveOrders() {
+    for (let i = 0; i < orders.length; i++) { //do enough times to resolve all uncontested moves;
+        for (let order of orders) {
+            if (destinationIsUncontested(order)) {
+                performMoveOrder(order);
+            }
+        }
+    }
 }
 
-function hasEnoughSupport(order) {
-    return false;
+function destinationIsUncontested(order) {
+    for (let unit of state.units) { 
+        if (unit.vertexName === order.destination.name) { //destination is occupied
+            return false;
+        }
+    }    
+    for (let otherOrder of orders) { 
+        if (otherOrder.destination === order.destination && otherOrder.origin !== order.origin) { //destination is contested
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function getOrderAtVertex(vertex) {
     for (let order of orders) {
+        if (order.origin.name === vertex.name) {
+            return order;
+        }
+    }
+    for (let order of state.latestOrders) {
         if (order.origin.name === vertex.name) {
             return order;
         }
@@ -221,16 +289,18 @@ function getOrderAtVertex(vertex) {
 function performMoveOrder(order) {
     if (order.action === "move") {
         if (areAdjacent(order.origin, order.destination) || isConvoyed(order)) {
-            if ((destinationIsContested(order) &&
-                hasEnoughSupport(order)) ||
-                !destinationIsContested(order)) {
-            }
             for (unit of state.units) {
                 if (unit.country === order.country &&
                     unit.type === order.unitType &&
                     unit.vertexName === order.origin.name
                 ) {
                     unit.vertexName = order.destination.name;
+                }
+            }
+            state.latestOrders.push(order);
+            for (let i = 0; i < orders.length; i++) {
+                if (orders[i].origin.name === order.origin.name) {
+                    orders.splice(i, 1);
                 }
             }
         }
@@ -241,11 +311,11 @@ function isConvoyed(order) {
     return false;
 }
 
-function ordersAsString() {
+function ordersAsString(outputOrders) {
     let result = "";
-    if (orders) {
-        console.log(orders);
-        for (let order of orders) {
+    if (outputOrders) {
+        console.log(outputOrders);
+        for (let order of outputOrders) {
             result += order.country + ": " + order.unitType + " " + order.origin.name;
 
             if (order.action === "hold") {
@@ -259,6 +329,9 @@ function ordersAsString() {
                 result += " S (" + orderToSupport.unitType + " " + orderToSupport.origin.name;
                 if (orderToSupport.action === "move") {
                     result += " -> " + orderToSupport.destination.name + ")";
+                }
+                else if (orderToSupport.action === "hold") {
+                    result += " H )";
                 }
             }
             else if (order.action === "convoy") {
@@ -320,7 +393,7 @@ canvas.addEventListener('click', function(event) {
 
     if (friendlyUnit && !orderInProgress) {
         if (action === "hold") {
-            addOrder(friendlyUnit, "hold", clickedVertex, "");
+            addOrder(friendlyUnit, "hold", clickedVertex, "", 0);
         }
         else {
             orderInProgress = true;
@@ -331,13 +404,17 @@ canvas.addEventListener('click', function(event) {
     else if (orderInProgress) {
         if (action === "move") {
             if (validMove(actionUnit, clickedVertex)) {
-                addOrder(actionUnit, "move", unitOriginVertex, clickedVertex);
+                addOrder(actionUnit, "move", unitOriginVertex, clickedVertex, 0);
             }
         }
         else if (action === "support") {
             let orderToSupport = getOrderAtVertex(clickedVertex);
-            if (orderToSupport && areAdjacent(unitOriginVertex, orderToSupport.destination) && validMove(actionUnit, orderToSupport.destination)) {
-                addOrder(actionUnit, "support", unitOriginVertex, clickedVertex);
+
+            if (orderToSupport && orderToSupport.origin !== unitOriginVertex) {
+                if (orderToSupport.action === "hold" && areAdjacent(unitOriginVertex, orderToSupport.origin)
+                    ||(orderToSupport.action === "move" && validMove(actionUnit, orderToSupport.destination) && areAdjacent(unitOriginVertex, orderToSupport.destination))) {
+                    addOrder(actionUnit, "support", unitOriginVertex, clickedVertex, 0);
+                }
             }
         }
         else if (action === "convoy") {
