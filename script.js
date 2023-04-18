@@ -186,7 +186,7 @@ function redraw() {
 }
 
 function resolveOrders() {
-    if (orders) {
+    if (orders) { 
         addHoldOrders();
         performUncontestedMoveOrders();
         resolveSupport();
@@ -197,6 +197,7 @@ function resolveOrders() {
         }
         redraw();
         document.getElementById("latestOrders").innerText = ordersAsString(state.latestOrders);
+        state.latestOrders = [];
         orders = [];
         document.getElementById("ordersString").innerText = ordersAsString(orders);
     }
@@ -211,7 +212,7 @@ function addHoldOrders() {
             }
         }
         if (!hasOrder) {
-            addOrder(unit, "hold", getVertexFromName(unit.vertexName), "", 0);
+            orders.push({"country": unit.country, "unitType": unit.type, "action": "hold", "origin": getVertexFromName(unit.vertexName), "destination": "", "support": 0});
         }
     }
 }
