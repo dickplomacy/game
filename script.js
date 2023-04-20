@@ -199,9 +199,6 @@ function redraw() {
 function resolveOrders() {
     if (orders) { 
         addHoldOrders();
-        performUncontestedMoveOrders();
-        resolveSupport();
-        dislodgeUnits();
 
         for (let i = 0; i < orders.length; i++) {
             state.latestOrders.push(orders[i]);
@@ -211,8 +208,12 @@ function resolveOrders() {
         state.latestOrders = [];
 
         console.log(orders);
+        performUncontestedMoveOrders();
+        resolveSupport();
+        dislodgeUnits();
         resolveDislodgedUnits();
         performDislodgingMoveOrders();
+        resolveCircularOrders();
 
         orders = [];
         document.getElementById("ordersString").innerText = ordersAsString(orders);
@@ -223,12 +224,41 @@ function resolveOrders() {
     }
 }
 
+function resolveCircularOrders() {
+    let circular = [];
+    for (let order1 of orders) {
+        if (order1.action === "move") {
+            for (let order2 of orders) {
+                if (order2.action === "move" && order1.destination.name === order2.origin.name) {
+                    if (!contains(circular, order1)) {
+                        circular.push(order1);
+                    }
+                }
+            }
+        }
+    }
+    if (circular.length > 0) {
+        if (circular[0].origin.name === circular[circular.length-1].destination.name) {
+            for (let co of circular) {
+                performMoveOrder(co);
+            }
+        }
+    }
+}
+
+function contains(array, element) {
+    for (let e of array) {
+        if (e === element) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function performDislodgingMoveOrders() {
     for (let i = 0; i < orders.length; i++) { //do enough times to resolve all dislodging moves;
         for (let order of orders) {
-            console.log(order);
             if (unitAtDestinationIsDislodged(order)) {
-                console.log("unitastdestin");
                 performMoveOrder(order);
             }
         }
@@ -236,7 +266,6 @@ function performDislodgingMoveOrders() {
 }
 
 function unitAtDestinationIsDislodged(order) {
-    console.log("unit at destin iaotn dislodged");
     for (let unit of state.dislodgedUnits) {
         if (unit.vertexName === order.destination.name) {
             return true;
@@ -329,7 +358,7 @@ function resolveSupport() {
 }
 
 function performUncontestedMoveOrders() {
-    for (let i = 0; i < orders.length; i++) { //do enough times to resolve all uncontested moves;
+    for (let i = 0; i < 100 && orders.length > 0; i++) { //do enough times to resolve all uncontested moves;
         for (let order of orders) {
             if (destinationIsUncontested(order) && order.action === "move") {
                 performMoveOrder(order);
@@ -369,10 +398,8 @@ function getOrderAtVertex(vertex) {
 }
 
 function performMoveOrder(order) {
-    console.log("move");
     if (order.action === "move") {
         if (areAdjacent(order.origin, order.destination) || isConvoyed(order)) {
-            console.log("moveasd");
             for (unit of state.units) {
                 if (unit.country === order.country &&
                     unit.type === order.unitType &&
