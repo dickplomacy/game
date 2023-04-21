@@ -6,15 +6,81 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const map = {
   "vertices": [
-    { "name": "Bel", "x": 150, "y": 150, "type": "coast"},
-    { "name": "Bur", "x": 200, "y": 300, "type": "land"},
-    { "name": "Eng", "x": 100, "y": 100, "type": "sea"},
-    { "name": "Hel", "x": 250, "y": 50, "type": "sea"},
-    { "name": "Hol", "x": 200, "y": 100, "type": "coast"},
-    { "name": "Kie", "x": 300, "y": 100, "type": "coast"},
-    { "name": "Nth", "x": 150, "y": 50, "type": "sea"},
-    { "name": "Pic", "x": 50,  "y": 250, "type": "coast"},
-    { "name": "Ruh", "x": 300, "y": 200, "type": "land"},
+    { "name": "Adr", "x": 500, "y": 550, "type": "sea"},
+    { "name": "Aeg", "x": 650, "y": 600, "type": "sea"},
+    { "name": "Alb", "x": 550, "y": 550, "type": "coast"},
+    { "name": "Ank", "x": 800, "y": 550, "type": "coast"},
+    { "name": "Apu", "x": 450, "y": 550, "type": "coast"},
+    { "name": "Arm", "x": 850, "y": 550, "type": "coast"},
+    { "name": "Bal", "x": 550, "y": 250, "type": "sea"},
+    { "name": "Bar", "x": 750, "y": 50, "type": "sea"},
+    { "name": "Bel", "x": 250, "y": 350, "type": "coast"},
+    { "name": "Ber", "x": 500, "y": 300, "type": "coast"},
+    { "name": "Bla", "x": 800, "y": 450, "type": "sea"},
+    { "name": "Boh", "x": 500, "y": 400, "type": "land"},
+    { "name": "Bot", "x": 600, "y": 200, "type": "sea"},
+    { "name": "Bre", "x": 150, "y": 450, "type": "coast"},
+    { "name": "Bud", "x": 600, "y": 500, "type": "land"},
+    { "name": "Bul", "x": 700, "y": 500, "type": "coast"},
+    { "name": "Bur", "x": 300, "y": 400, "type": "land"},
+    { "name": "Cly", "x": 100, "y": 200, "type": "coast"},
+    { "name": "Con", "x": 750, "y": 550, "type": "coast"},
+    { "name": "Den", "x": 450, "y": 250, "type": "land"},
+    { "name": "Eas", "x": 700, "y": 650, "type": "sea"},
+    { "name": "Edi", "x": 150, "y": 200, "type": "coast"},
+    { "name": "Eng", "x": 200, "y": 300, "type": "sea"},
+    { "name": "Fin", "x": 600, "y": 150, "type": "coast"},
+    { "name": "Gal", "x": 600, "y": 400, "type": "land"},
+    { "name": "Gas", "x": 200, "y": 500, "type": "coast"},
+    { "name": "Gre", "x": 600, "y": 600, "type": "coast"},
+    { "name": "Hel", "x": 350, "y": 250, "type": "sea"},
+    { "name": "Hol", "x": 300, "y": 300, "type": "coast"},
+    { "name": "Ion", "x": 400, "y": 650, "type": "sea"},
+    { "name": "Iri", "x": 50, "y": 300, "type": "sea"},
+    { "name": "Kie", "x": 400, "y": 300, "type": "coast"},
+    { "name": "Lon", "x": 150, "y": 300, "type": "coast"},
+    { "name": "Lpl", "x": 100, "y": 250, "type": "coast"},
+    { "name": "Lvn", "x": 650, "y": 250, "type": "coast"},
+    { "name": "Lyo", "x": 250, "y": 550, "type": "sea"},
+    { "name": "Mar", "x": 300, "y": 500, "type": "coast"},
+    { "name": "Mid", "x": 50, "y": 400, "type": "sea"},
+    { "name": "Mos", "x": 750, "y": 300, "type": "land"},
+    { "name": "Mun", "x": 450, "y": 350, "type": "land"},
+    { "name": "Naf", "x": 150, "y": 650, "type": "coast"},
+    { "name": "Nap", "x": 400, "y": 600, "type": "coast"},
+    { "name": "Nat", "x": 50, "y": 150, "type": "sea"},
+    { "name": "Nrg", "x": 250, "y": 50, "type": "sea"},
+    { "name": "Nth", "x": 250, "y": 250, "type": "sea"},
+    { "name": "Nwy", "x": 400, "y": 100, "type": "coast"},
+    { "name": "Par", "x": 250,  "y": 450, "type": "land"},
+    { "name": "Pic", "x": 200,  "y": 400, "type": "coast"},
+    { "name": "Pie", "x": 350, "y": 500, "type": "coast"},
+    { "name": "Por", "x": 100, "y": 550, "type": "coast"},
+    { "name": "Pru", "x": 600, "y": 300, "type": "coast"},
+    { "name": "Rom", "x": 400, "y": 550, "type": "coast"},
+    { "name": "Ruh", "x": 350, "y": 350, "type": "land"},
+    { "name": "Rum", "x": 700, "y": 450, "type": "coast"},
+    { "name": "Ser", "x": 600, "y": 550, "type": "land"},
+    { "name": "Sev", "x": 750, "y": 400, "type": "coast"},
+    { "name": "Sil", "x": 550, "y": 350, "type": "land"},
+    { "name": "Ska", "x": 450, "y": 200, "type": "sea"},
+    { "name": "Smy", "x": 800, "y": 600, "type": "coast"},
+    { "name": "Spa", "x": 150, "y": 550, "type": "coast"},
+    { "name": "Stp", "x": 750, "y": 100, "type": "coast"},
+    { "name": "Swe", "x": 500, "y": 150, "type": "coast"},
+    { "name": "Syr", "x": 850, "y": 650, "type": "coast"},
+    { "name": "Tri", "x": 450, "y": 500, "type": "coast"},
+    { "name": "Trl", "x": 450, "y": 400, "type": "land"},
+    { "name": "Tun", "x": 250, "y": 650, "type": "coast"},
+    { "name": "Tus", "x": 350, "y": 550, "type": "coast"},
+    { "name": "Tyn", "x": 300, "y": 600, "type": "sea"},
+    { "name": "Ukr", "x": 700, "y": 400, "type": "coast"},
+    { "name": "Ven", "x": 400, "y": 500, "type": "coast"},
+    { "name": "Yor", "x": 150, "y": 250, "type": "coast"},
+    { "name": "Vie", "x": 500, "y": 450, "type": "land"},
+    { "name": "Wal", "x": 100, "y": 300, "type": "coast"},
+    { "name": "War", "x": 650, "y": 350, "type": "land"},
+    { "name": "Wes", "x": 200, "y": 600, "type": "sea"},
   ],
   "edges": [
     { "from": "Bel", "to": "Bur" },
@@ -41,7 +107,7 @@ const map = {
   ]
 };
 
-let playerCountry = "GER";
+let playerCountry = "";
 
 const initialState = {
     "units": [
@@ -156,6 +222,13 @@ function getUnitOnVertex(vertex) {
 
 function selectCountry(countryName) {
     playerCountry = countryName;
+    setCountryButtonColors();
+    if (playerCountry === "GER") {
+        document.getElementById("gerbutton").style.backgroundColor = "red";
+    }
+    else if (playerCountry === "FRA") {
+        document.getElementById("frabutton").style.backgroundColor = "red";
+    }
 }
 
 function areAdjacent(vertexA, vertexB) {
@@ -480,6 +553,11 @@ function setButtonColors() {
     document.getElementById("movebutton").style.backgroundColor = "pink";
     document.getElementById("supportbutton").style.backgroundColor = "pink";
     document.getElementById("convoybutton").style.backgroundColor = "pink";
+}
+
+function setCountryButtonColors() {
+    document.getElementById("gerbutton").style.backgroundColor = "pink";
+    document.getElementById("frabutton").style.backgroundColor = "pink";
 }
 
 let orderInProgress = false;
