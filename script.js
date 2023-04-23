@@ -86,17 +86,148 @@ const map = {
     { "name": "Wes", "x": 30, "y": 85, "type": "sea"},
   ],
   "edges": [
+    { "from": "Adr", "to": "Alb" },
+    { "from": "Adr", "to": "Apu" },
+    { "from": "Adr", "to": "Ion" },
+    { "from": "Adr", "to": "Tri" },
+    { "from": "Adr", "to": "Ven" },
+
+    { "from": "Aeg", "to": "Bul" },
+    { "from": "Aeg", "to": "Con" },
+    { "from": "Aeg", "to": "Eas" },
+    { "from": "Aeg", "to": "Gre" },
+    { "from": "Aeg", "to": "Ion" },
+    { "from": "Aeg", "to": "Smy" },
+
+    { "from": "Alb", "to": "Gre" },
+    { "from": "Alb", "to": "Ion" },
+    { "from": "Alb", "to": "Ser" },
+    { "from": "Alb", "to": "Tri" },
+
+    { "from": "Ank", "to": "Arm" },
+    { "from": "Ank", "to": "Bla" },
+    { "from": "Ank", "to": "Con" },
+    { "from": "Ank", "to": "Smy" },
+
+    { "from": "Apu", "to": "Ion" },
+    { "from": "Apu", "to": "Nap" },
+    { "from": "Apu", "to": "Ven" },
+    { "from": "Apu", "to": "Rom" },
+
+    { "from": "Arm", "to": "Bla" },
+    { "from": "Arm", "to": "Sev" },
+    { "from": "Arm", "to": "Smy" },
+    { "from": "Arm", "to": "Syr" },
+
+    { "from": "Bal", "to": "Ber" },
+    { "from": "Bal", "to": "Bot" },
+    { "from": "Bal", "to": "Den" },
+    { "from": "Bal", "to": "Kie" },
+    { "from": "Bal", "to": "Lvn" },
+    { "from": "Bal", "to": "Pru" },
+    { "from": "Bal", "to": "Swe" },
+
+    { "from": "Bar", "to": "Nrg" },
+    { "from": "Bar", "to": "Nwy" },
+    { "from": "Bar", "to": "Stp" },
+
     { "from": "Bel", "to": "Bur" },
+    { "from": "Bel", "to": "Eng" },
     { "from": "Bel", "to": "Hol" },
     { "from": "Bel", "to": "Pic" },
     { "from": "Bel", "to": "Ruh" },
+    { "from": "Bel", "to": "Nth" },
 
-    { "from": "Eng", "to": "Bel" },
-    { "from": "Eng", "to": "Nth" },
-    { "from": "Eng", "to": "Pic" },
+    { "from": "Ber", "to": "Kie" },
+    { "from": "Ber", "to": "Mun" },
+    { "from": "Ber", "to": "Pru" },
+    { "from": "Ber", "to": "Sil" },
 
+    { "from": "Bla", "to": "Bul" },
+    { "from": "Bla", "to": "Con" },
+    { "from": "Bla", "to": "Rum" },
+    { "from": "Bla", "to": "Sev" },
+
+    { "from": "Boh", "to": "Gal" },
+    { "from": "Boh", "to": "Mun" },
+    { "from": "Boh", "to": "Sil" },
+    { "from": "Boh", "to": "Trl" },
+    { "from": "Boh", "to": "Vie" },
+
+    { "from": "Bot", "to": "Fin" },
+    { "from": "Bot", "to": "Lvn" },
+    { "from": "Bot", "to": "Stp" },
+    { "from": "Bot", "to": "Swe" },
+
+    { "from": "Bre", "to": "Eng" },
+    { "from": "Bre", "to": "Gas" },
+    { "from": "Bre", "to": "Mid" },
+    { "from": "Bre", "to": "Par" },
+    { "from": "Bre", "to": "Pic" },
+
+    { "from": "Bud", "to": "Gal" },
+    { "from": "Bud", "to": "Rum" },
+    { "from": "Bud", "to": "Ser" },
+    { "from": "Bud", "to": "Tri" },
+    { "from": "Bud", "to": "Vie" },
+
+    { "from": "Bul", "to": "Con" },
+    { "from": "Bul", "to": "Gre" },
+    { "from": "Bul", "to": "Rum" },
+    { "from": "Bul", "to": "Ser" },
+
+    { "from": "Bur", "to": "Gas" },
+    { "from": "Bur", "to": "Mar" },
+    { "from": "Bur", "to": "Par" },
     { "from": "Bur", "to": "Pic" },
     { "from": "Bur", "to": "Ruh" },
+
+    { "from": "Cly", "to": "Edi" },
+    { "from": "Cly", "to": "Lpl" },
+    { "from": "Cly", "to": "Nat" },
+    { "from": "Cly", "to": "Nrg" },
+
+    { "from": "Con", "to": "Smy" },
+
+    { "from": "Den", "to": "Hel" },
+    { "from": "Den", "to": "Kie" },
+    { "from": "Den", "to": "Nth" },
+    { "from": "Den", "to": "Ska" },
+    { "from": "Den", "to": "Swe" },
+    
+    { "from": "Eas", "to": "Smy" },
+    { "from": "Eas", "to": "Syr" },
+    { "from": "Eas", "to": "Ion" },
+
+    { "from": "Edi", "to": "Lpl" },
+    { "from": "Edi", "to": "Nrg" },
+    { "from": "Edi", "to": "Nth" },
+    { "from": "Edi", "to": "Yor" },
+
+    { "from": "Eng", "to": "Iri" },
+    { "from": "Eng", "to": "Lon" },
+    { "from": "Eng", "to": "Mid" },
+    { "from": "Eng", "to": "Nth" },
+    { "from": "Eng", "to": "Pic" },
+    { "from": "Eng", "to": "Wal" },
+
+    { "from": "Fin", "to": "Nwy" },
+    { "from": "Fin", "to": "Stp" },
+    { "from": "Fin", "to": "Swe" },
+
+    { "from": "Gal", "to": "Rum" },
+    { "from": "Gal", "to": "Sil" },
+    { "from": "Gal", "to": "Ukr" },
+    { "from": "Gal", "to": "Vie" },
+    { "from": "Gal", "to": "War" },
+
+    { "from": "Gas", "to": "Mar" },
+    { "from": "Gas", "to": "Mid" },
+    { "from": "Gas", "to": "Par" },
+    { "from": "Gas", "to": "Spa" },
+
+    { "from": "Gre", "to": "Ion" },
+    { "from": "Gre", "to": "Ser" },
 
     { "from": "Hel", "to": "Hol" },
     { "from": "Hel", "to": "Kie" },
@@ -106,7 +237,125 @@ const map = {
     { "from": "Hol", "to": "Nth" },
     { "from": "Hol", "to": "Ruh" },
 
+    { "from": "Ion", "to": "Nap" },
+    { "from": "Ion", "to": "Tun" },
+    { "from": "Ion", "to": "Tyn" },
+
+    { "from": "Iri", "to": "Lpl" },
+    { "from": "Iri", "to": "Mid" },
+    { "from": "Iri", "to": "Nat" },
+    { "from": "Iri", "to": "Wal" },
+
+    { "from": "Kie", "to": "Mun" },
     { "from": "Kie", "to": "Ruh" },
+
+    { "from": "Lon", "to": "Nth" },
+    { "from": "Lon", "to": "Wal" },
+    { "from": "Lon", "to": "Yor" },
+
+    { "from": "Lpl", "to": "Nat" },
+    { "from": "Lpl", "to": "Wal" },
+    { "from": "Lpl", "to": "Yor" },
+
+    { "from": "Lvn", "to": "Mos" },
+    { "from": "Lvn", "to": "Pru" },
+    { "from": "Lvn", "to": "Stp" },
+    { "from": "Lvn", "to": "War" },
+
+    { "from": "Lyo", "to": "Mar" },
+    { "from": "Lyo", "to": "Pie" },
+    { "from": "Lyo", "to": "Spa" },
+    { "from": "Lyo", "to": "Tus" },
+    { "from": "Lyo", "to": "Tyn" },
+    { "from": "Lyo", "to": "Wes" },
+
+    { "from": "Mar", "to": "Pie" },
+    { "from": "Mar", "to": "Spa" },
+
+    { "from": "Mid", "to": "Naf" },
+    { "from": "Mid", "to": "Nat" },
+    { "from": "Mid", "to": "Por" },
+    { "from": "Mid", "to": "Spa" },
+    { "from": "Mid", "to": "Wes" },
+
+    { "from": "Mos", "to": "Sev" },
+    { "from": "Mos", "to": "Stp" },
+    { "from": "Mos", "to": "Ukr" },
+    { "from": "Mos", "to": "War" },
+
+    { "from": "Mun", "to": "Ruh" },
+    { "from": "Mun", "to": "Sil" },
+    { "from": "Mun", "to": "Trl" },
+
+    { "from": "Naf", "to": "Tun" },
+    { "from": "Naf", "to": "Wes" },
+
+    { "from": "Nap", "to": "Rom" },
+    { "from": "Nap", "to": "Tyn" },
+
+    { "from": "Nat", "to": "Nrg" },
+
+    { "from": "Nrg", "to": "Nwy" },
+    { "from": "Nrg", "to": "Nth" },
+    
+    { "from": "Nth", "to": "Nwy" },
+    { "from": "Nth", "to": "Ska" },
+
+    { "from": "Nwy", "to": "Ska" },
+    { "from": "Nwy", "to": "Swe" },
+
+    { "from": "Par", "to": "Pic" },
+
+    { "from": "Pie", "to": "Trl" },
+    { "from": "Pie", "to": "Tus" },
+    { "from": "Pie", "to": "Ven" },
+
+    { "from": "Por", "to": "Spa" },
+
+    { "from": "Pru", "to": "Sil" },
+    { "from": "Pru", "to": "War" },
+
+    { "from": "Rom", "to": "Tus" },
+    { "from": "Rom", "to": "Tyn" },
+    { "from": "Rom", "to": "Ven" },
+
+    { "from": "Rum", "to": "Ukr" },
+    { "from": "Rum", "to": "Ser" },
+    { "from": "Rum", "to": "Sev" },
+
+    { "from": "Ser", "to": "Tri" },
+
+    { "from": "Sev", "to": "Ukr" },
+
+    { "from": "Sil", "to": "War" },
+
+    { "from": "Ska", "to": "Swe" },
+
+    { "from": "Smy", "to": "Syr" },
+
+    { "from": "Spa", "to": "Wes" },
+
+    { "from": "Tri", "to": "Trl" },
+    { "from": "Tri", "to": "Ven" },
+    { "from": "Tri", "to": "Vie" },
+
+    { "from": "Trl", "to": "Ven" },
+    { "from": "Trl", "to": "Vie" },
+    
+    { "from": "Tun", "to": "Tyn" },
+    { "from": "Tun", "to": "Wes" },
+
+    { "from": "Tyn", "to": "Wes" },
+
+    { "from": "Tus", "to": "Tyn" },
+    { "from": "Tus", "to": "Ven" },
+
+    { "from": "Ukr", "to": "War" },
+
+    { "from": "Yor", "to": "Wal" },
+
+
+
   ]
 };
 
