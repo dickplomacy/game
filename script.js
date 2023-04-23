@@ -4,83 +4,86 @@ const unitSquareSize = 20;
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
+let w = canvas.width/100; //map width percentage
+let h = canvas.height/100; //map height percentage
+    
 const map = {
   "vertices": [
-    { "name": "Adr", "x": 500, "y": 550, "type": "sea"},
-    { "name": "Aeg", "x": 650, "y": 600, "type": "sea"},
-    { "name": "Alb", "x": 550, "y": 550, "type": "coast"},
-    { "name": "Ank", "x": 800, "y": 550, "type": "coast"},
-    { "name": "Apu", "x": 450, "y": 550, "type": "coast"},
-    { "name": "Arm", "x": 850, "y": 550, "type": "coast"},
-    { "name": "Bal", "x": 550, "y": 250, "type": "sea"},
-    { "name": "Bar", "x": 750, "y": 50, "type": "sea"},
-    { "name": "Bel", "x": 250, "y": 350, "type": "coast"},
-    { "name": "Ber", "x": 500, "y": 300, "type": "coast"},
-    { "name": "Bla", "x": 800, "y": 450, "type": "sea"},
-    { "name": "Boh", "x": 500, "y": 400, "type": "land"},
-    { "name": "Bot", "x": 600, "y": 200, "type": "sea"},
-    { "name": "Bre", "x": 150, "y": 450, "type": "coast"},
-    { "name": "Bud", "x": 600, "y": 500, "type": "land"},
-    { "name": "Bul", "x": 700, "y": 500, "type": "coast"},
-    { "name": "Bur", "x": 300, "y": 400, "type": "land"},
-    { "name": "Cly", "x": 100, "y": 200, "type": "coast"},
-    { "name": "Con", "x": 750, "y": 550, "type": "coast"},
-    { "name": "Den", "x": 450, "y": 250, "type": "land"},
-    { "name": "Eas", "x": 700, "y": 650, "type": "sea"},
-    { "name": "Edi", "x": 150, "y": 200, "type": "coast"},
-    { "name": "Eng", "x": 200, "y": 300, "type": "sea"},
-    { "name": "Fin", "x": 600, "y": 150, "type": "coast"},
-    { "name": "Gal", "x": 600, "y": 400, "type": "land"},
-    { "name": "Gas", "x": 200, "y": 500, "type": "coast"},
-    { "name": "Gre", "x": 600, "y": 600, "type": "coast"},
-    { "name": "Hel", "x": 350, "y": 250, "type": "sea"},
-    { "name": "Hol", "x": 300, "y": 300, "type": "coast"},
-    { "name": "Ion", "x": 400, "y": 650, "type": "sea"},
-    { "name": "Iri", "x": 50, "y": 300, "type": "sea"},
-    { "name": "Kie", "x": 400, "y": 300, "type": "coast"},
-    { "name": "Lon", "x": 150, "y": 300, "type": "coast"},
-    { "name": "Lpl", "x": 100, "y": 250, "type": "coast"},
-    { "name": "Lvn", "x": 650, "y": 250, "type": "coast"},
-    { "name": "Lyo", "x": 250, "y": 550, "type": "sea"},
-    { "name": "Mar", "x": 300, "y": 500, "type": "coast"},
-    { "name": "Mid", "x": 50, "y": 400, "type": "sea"},
-    { "name": "Mos", "x": 750, "y": 300, "type": "land"},
-    { "name": "Mun", "x": 450, "y": 350, "type": "land"},
-    { "name": "Naf", "x": 150, "y": 650, "type": "coast"},
-    { "name": "Nap", "x": 400, "y": 600, "type": "coast"},
-    { "name": "Nat", "x": 50, "y": 150, "type": "sea"},
-    { "name": "Nrg", "x": 250, "y": 50, "type": "sea"},
-    { "name": "Nth", "x": 250, "y": 250, "type": "sea"},
-    { "name": "Nwy", "x": 400, "y": 100, "type": "coast"},
-    { "name": "Par", "x": 250,  "y": 450, "type": "land"},
-    { "name": "Pic", "x": 200,  "y": 400, "type": "coast"},
-    { "name": "Pie", "x": 350, "y": 500, "type": "coast"},
-    { "name": "Por", "x": 100, "y": 550, "type": "coast"},
-    { "name": "Pru", "x": 600, "y": 300, "type": "coast"},
-    { "name": "Rom", "x": 400, "y": 550, "type": "coast"},
-    { "name": "Ruh", "x": 350, "y": 350, "type": "land"},
-    { "name": "Rum", "x": 700, "y": 450, "type": "coast"},
-    { "name": "Ser", "x": 600, "y": 550, "type": "land"},
-    { "name": "Sev", "x": 750, "y": 400, "type": "coast"},
-    { "name": "Sil", "x": 550, "y": 350, "type": "land"},
-    { "name": "Ska", "x": 450, "y": 200, "type": "sea"},
-    { "name": "Smy", "x": 800, "y": 600, "type": "coast"},
-    { "name": "Spa", "x": 150, "y": 550, "type": "coast"},
-    { "name": "Stp", "x": 750, "y": 100, "type": "coast"},
-    { "name": "Swe", "x": 500, "y": 150, "type": "coast"},
-    { "name": "Syr", "x": 850, "y": 650, "type": "coast"},
-    { "name": "Tri", "x": 450, "y": 500, "type": "coast"},
-    { "name": "Trl", "x": 450, "y": 400, "type": "land"},
-    { "name": "Tun", "x": 250, "y": 650, "type": "coast"},
-    { "name": "Tus", "x": 350, "y": 550, "type": "coast"},
-    { "name": "Tyn", "x": 300, "y": 600, "type": "sea"},
-    { "name": "Ukr", "x": 700, "y": 400, "type": "coast"},
-    { "name": "Ven", "x": 400, "y": 500, "type": "coast"},
-    { "name": "Yor", "x": 150, "y": 250, "type": "coast"},
-    { "name": "Vie", "x": 500, "y": 450, "type": "land"},
-    { "name": "Wal", "x": 100, "y": 300, "type": "coast"},
-    { "name": "War", "x": 650, "y": 350, "type": "land"},
-    { "name": "Wes", "x": 200, "y": 600, "type": "sea"},
+    { "name": "Adr", "x": 51, "y": 76, "type": "sea"},
+    { "name": "Aeg", "x": 66, "y": 89, "type": "sea"},
+    { "name": "Alb", "x": 57, "y": 81, "type": "coast"},
+    { "name": "Ank", "x": 80, "y": 77, "type": "coast"},
+    { "name": "Apu", "x": 52, "y": 81, "type": "coast"},
+    { "name": "Arm", "x": 90, "y": 77, "type": "coast"},
+    { "name": "Bal", "x": 54, "y": 42, "type": "sea"},
+    { "name": "Bar", "x": 70, "y": 10, "type": "sea"},
+    { "name": "Bel", "x": 35, "y": 55, "type": "coast"},
+    { "name": "Ber", "x": 47, "y": 52, "type": "coast"},
+    { "name": "Bla", "x": 80, "y": 70, "type": "sea"},
+    { "name": "Boh", "x": 49, "y": 60, "type": "land"},
+    { "name": "Bot", "x": 56, "y": 37, "type": "sea"},
+    { "name": "Bre", "x": 25, "y": 61, "type": "coast"},
+    { "name": "Bud", "x": 59, "y": 66, "type": "land"},
+    { "name": "Bul", "x": 65, "y": 76, "type": "coast"},
+    { "name": "Bur", "x": 35, "y": 64, "type": "land"},
+    { "name": "Cly", "x": 25, "y": 37, "type": "coast"},
+    { "name": "Con", "x": 71, "y": 79, "type": "coast"},
+    { "name": "Den", "x": 44, "y": 45, "type": "coast"},
+    { "name": "Eas", "x": 75, "y": 92, "type": "sea"},
+    { "name": "Edi", "x": 29, "y": 41, "type": "coast"},
+    { "name": "Eng", "x": 24, "y": 56, "type": "sea"},
+    { "name": "Fin", "x": 60, "y": 30, "type": "coast"},
+    { "name": "Gal", "x": 61, "y": 59, "type": "land"},
+    { "name": "Gas", "x": 26, "y": 69, "type": "coast"},
+    { "name": "Gre", "x": 61, "y": 85, "type": "coast"},
+    { "name": "Hel", "x": 39, "y": 47, "type": "sea"},
+    { "name": "Hol", "x": 37, "y": 51, "type": "coast"},
+    { "name": "Ion", "x": 55, "y": 91, "type": "sea"},
+    { "name": "Iri", "x": 20, "y": 51, "type": "sea"},
+    { "name": "Kie", "x": 42, "y": 52, "type": "coast"},
+    { "name": "Lon", "x": 30, "y": 53, "type": "coast"},
+    { "name": "Lpl", "x": 26, "y": 45, "type": "coast"},
+    { "name": "Lvn", "x": 62, "y": 42, "type": "coast"},
+    { "name": "Lyo", "x": 35, "y": 78, "type": "sea"},
+    { "name": "Mar", "x": 33, "y": 73, "type": "coast"},
+    { "name": "Mid", "x": 10, "y": 62, "type": "sea"},
+    { "name": "Mos", "x": 75, "y": 41, "type": "land"},
+    { "name": "Mun", "x": 43, "y": 62, "type": "land"},
+    { "name": "Naf", "x": 25, "y": 90, "type": "coast"},
+    { "name": "Nap", "x": 48, "y": 82, "type": "coast"},
+    { "name": "Nat", "x": 15, "y": 35, "type": "sea"},
+    { "name": "Nrg", "x": 40, "y": 20, "type": "sea"},
+    { "name": "Nth", "x": 35, "y": 42, "type": "sea"},
+    { "name": "Nwy", "x": 43, "y": 33, "type": "coast"},
+    { "name": "Par", "x": 31, "y": 62, "type": "land"},
+    { "name": "Pic", "x": 31, "y": 57, "type": "coast"},
+    { "name": "Pie", "x": 40, "y": 70, "type": "coast"},
+    { "name": "Por", "x":  9, "y": 78, "type": "coast"},
+    { "name": "Pru", "x": 53, "y": 51, "type": "coast"},
+    { "name": "Rom", "x": 45, "y": 78, "type": "coast"},
+    { "name": "Ruh", "x": 39, "y": 60, "type": "land"},
+    { "name": "Rum", "x": 67, "y": 70, "type": "coast"},
+    { "name": "Ser", "x": 59, "y": 75, "type": "land"},
+    { "name": "Sev", "x": 77, "y": 65, "type": "coast"},
+    { "name": "Sil", "x": 50, "y": 56, "type": "land"},
+    { "name": "Ska", "x": 44, "y": 40, "type": "sea"},
+    { "name": "Smy", "x": 77, "y": 85, "type": "coast"},
+    { "name": "Spa", "x": 19, "y": 77, "type": "coast"},
+    { "name": "Stp", "x": 73, "y": 30, "type": "coast"},
+    { "name": "Swe", "x": 49, "y": 37, "type": "coast"},
+    { "name": "Syr", "x": 90, "y": 90, "type": "coast"},
+    { "name": "Tri", "x": 52, "y": 72, "type": "coast"},
+    { "name": "Trl", "x": 48, "y": 66, "type": "land"},
+    { "name": "Tun", "x": 40, "y": 90, "type": "coast"},
+    { "name": "Tus", "x": 42, "y": 74, "type": "coast"},
+    { "name": "Tyn", "x": 43, "y": 84, "type": "sea"},
+    { "name": "Ukr", "x": 70, "y": 57, "type": "land"},
+    { "name": "Ven", "x": 45, "y": 70, "type": "coast"},
+    { "name": "Yor", "x": 30, "y": 48, "type": "coast"},
+    { "name": "Vie", "x": 52, "y": 65, "type": "land"},
+    { "name": "Wal", "x": 25, "y": 51, "type": "coast"},
+    { "name": "War", "x": 58, "y": 54, "type": "land"},
+    { "name": "Wes", "x": 30, "y": 85, "type": "sea"},
   ],
   "edges": [
     { "from": "Bel", "to": "Bur" },
@@ -126,8 +129,7 @@ const vertexSideLength = 50;
 let orders = [];
 
 //functions
-
-function drawMap(map) {
+function drawVertices() {
   // Draw edges
   for (let edge of map.edges) {
     const fromVertex = map.vertices.find(vertex => vertex.name === edge.from);
@@ -135,8 +137,8 @@ function drawMap(map) {
     ctx.lineWidth = 2;
     ctx.strokeStyle = 'black'; // set stroke color to black
     ctx.beginPath();
-    ctx.moveTo(fromVertex.x, fromVertex.y);
-    ctx.lineTo(toVertex.x, toVertex.y);
+    ctx.moveTo(fromVertex.x*(canvas.width/100), fromVertex.y*(canvas.height/100));
+    ctx.lineTo(toVertex.x*(canvas.width/100), toVertex.y*(canvas.height/100));
     ctx.stroke();
   }
 
@@ -145,19 +147,26 @@ function drawMap(map) {
     let lineWidth = 4;
     ctx.strokeStyle = 'black'; // set stroke color to black
     ctx.lineWidth = lineWidth; // set stroke width to 2 pixels
-    ctx.strokeRect(vertex.x - vertexSideLength/2, vertex.y - vertexSideLength/2, vertexSideLength, vertexSideLength); // draw a rectangular border
-    if (vertex.type === "land" || vertex.type === "coast") {
+
+    let xPosition = vertex.x*(canvas.width/100) - vertexSideLength/2;
+    let yPosition = vertex.y*(canvas.height/100) - vertexSideLength/2;
+
+    ctx.strokeRect(xPosition, yPosition, vertexSideLength, vertexSideLength); // draw a rectangular border
+    if (vertex.type === "land") {
         ctx.strokeStyle = "brown";
+    }
+    else if (vertex.type === "coast") {
+        ctx.strokeStyle = "orange";
     }
     else if (vertex.type === "sea") {
         ctx.strokeStyle = "teal";
     }
-    ctx.strokeRect(vertex.x - vertexSideLength/2 + lineWidth, vertex.y - vertexSideLength/2 + lineWidth, vertexSideLength - 2*lineWidth, vertexSideLength - 2*lineWidth); // draw a rectangular border
+    ctx.strokeRect(xPosition + lineWidth, yPosition + lineWidth, vertexSideLength - 2*lineWidth, vertexSideLength - 2*lineWidth); // draw a rectangular border
     ctx.font = "bold 14px Arial";
     ctx.fillStyle = "#000000";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(vertex.name, vertex.x, vertex.y-15);
+    ctx.fillText(vertex.name, xPosition + vertexSideLength/2, yPosition + vertexSideLength/2 - 15);
   }
 }
 
@@ -175,15 +184,25 @@ function drawUnits() {
                 }
 
                 if (unit.type === "A") {
-                    ctx.fillRect(vertex.x-unitSquareSize/2, vertex.y-unitSquareSize/2, unitSquareSize, unitSquareSize);
+                    ctx.fillRect(vertex.x*(canvas.width/100)-unitSquareSize/2, vertex.y*(canvas.height/100)-unitSquareSize/2, unitSquareSize, unitSquareSize);
 
                 }
                 else if (unit.type === "F") {
-                    ctx.fillRect(vertex.x-unitSquareSize, vertex.y-unitSquareSize/4, unitSquareSize*2, unitSquareSize/2);
+                    ctx.fillRect(vertex.x*(canvas.width/100)-unitSquareSize, vertex.y*(canvas.height/100)-unitSquareSize/4, unitSquareSize*2, unitSquareSize/2);
                 }
             }
         }
     }
+}
+
+function drawMap() {
+    var backgroundImage = new Image();
+    backgroundImage.src = "dipmap.jpg";
+    backgroundImage.onload = function() {
+        ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+        drawVertices(map);
+        drawUnits();
+    };
 }
 
 function getState() {
@@ -197,7 +216,7 @@ function getState() {
 
 function getClickedVertex(mouseX, mouseY) {
     for (let vertex of map.vertices) {
-        if ((vertex.x - vertexSideLength/2) < mouseX && mouseX < (vertex.x + vertexSideLength/2) && (vertex.y - vertexSideLength/2) < mouseY && mouseY < (vertex.y + vertexSideLength/2)) {
+        if ((vertex.x*(canvas.width/100) - vertexSideLength/2) < mouseX && mouseX < (vertex.x*(canvas.width/100) + vertexSideLength/2) && (vertex.y*(canvas.height/100) - vertexSideLength/2) < mouseY && mouseY < (vertex.y*(canvas.height/100) + vertexSideLength/2)) {
             return vertex;
         }
     }
@@ -265,8 +284,7 @@ function validMove(unit, destinationVertex) {
 
 function redraw() {
     ctx.clearRect(0,0,400,400);
-    drawMap(map);
-    drawUnits();
+    drawMap();
 }
 
 function resolveOrders() {
@@ -527,8 +545,7 @@ function ordersAsString(outputOrders) {
     return result;
 }
 
-drawMap(map);
-drawUnits();
+drawMap();
 
 let action = "";
 function setAction (actionInput) {
