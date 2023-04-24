@@ -1,11 +1,4 @@
 //constants
-
-const unitSquareSize = 20;
-
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-let w = canvas.width/100; //map width percentage
-let h = canvas.height/100; //map height percentage
     
 const map = {
   "vertices": [
@@ -359,6 +352,11 @@ const map = {
   ]
 };
 
+const unitSquareSize = 20;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
 let playerCountry = "";
 
 const initialState = {
@@ -372,6 +370,9 @@ const initialState = {
 }
 
 let state = initialState;
+if (validStateHash()) {
+    setTimeout(() => {decodeStateHash()}, 200); //wait for load before decoding
+}
 
 const vertexSideLength = 50;
 
@@ -383,7 +384,7 @@ function drawVertices() {
   for (let edge of map.edges) {
     const fromVertex = map.vertices.find(vertex => vertex.name === edge.from);
     const toVertex = map.vertices.find(vertex => vertex.name === edge.to);
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.strokeStyle = 'black'; // set stroke color to black
     ctx.beginPath();
     ctx.moveTo(fromVertex.x*(canvas.width/100), fromVertex.y*(canvas.height/100));
@@ -395,7 +396,7 @@ function drawVertices() {
   for (let vertex of map.vertices) {
     let lineWidth = 4;
     ctx.strokeStyle = 'black'; // set stroke color to black
-    ctx.lineWidth = lineWidth; // set stroke width to 2 pixels
+    ctx.lineWidth = lineWidth;
 
     let xPosition = vertex.x*(canvas.width/100) - vertexSideLength/2;
     let yPosition = vertex.y*(canvas.height/100) - vertexSideLength/2;
@@ -540,15 +541,20 @@ function resolveOrders() {
     if (orders) { 
         addHoldOrders();
 
-        for (let i = 0; i < orders.length; i++) {
-            state.latestOrders.push(orders[i]);
+        if (state.latestOrders.length === 0) {
+            for (let i = 0; i < orders.length; i++) {
+                state.latestOrders.push(orders[i]);
+            }
         }
+
+        let latestOrdersForHash = state.latestOrders;
 
         document.getElementById("latestOrders").innerText = ordersAsString(state.latestOrders);
         state.latestOrders = [];
 
         console.log(orders);
         performUncontestedMoveOrders();
+
         resolveSupport();
         dislodgeUnits();
         resolveDislodgedUnits();
@@ -558,10 +564,101 @@ function resolveOrders() {
         orders = [];
         document.getElementById("ordersString").innerText = ordersAsString(orders);
 
-
-
         redraw();
+        console.log("asdasad");
+        setLink(latestOrdersForHash);
+        console.log("asdasd");
     }
+}
+
+function setLink(latestOrdersForHash) {
+    let stateHash = "-";
+    for (let unit of state.units) {
+        stateHash += "." + unit.country + unit.type + unit.vertexName; 
+    }
+    stateHash += "-";
+
+    console.log(latestOrdersForHash)
+    console.log("asd");
+
+    for (let latestOrder of latestOrdersForHash) {
+        stateHash += "." + latestOrder.country + latestOrder.unitType + latestOrder.origin.name + latestOrder.action;
+        if (latestOrder.destination === "") {
+            stateHash += "_";
+        }
+        else {
+            stateHash += latestOrder.destination.name;
+        }
+    }
+
+    window.location.hash = stateHash;
+    document.getElementById("gameLink").innerText = window.location;
+    window.location.hash = "";
+}
+
+function validStateHash() {
+    
+    if (window.location.hash) {
+        let stateHash = window.location.hash.split("#")[1];
+        if (stateHash.length > 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function decodeStateHash() {
+
+    state.units = [];
+    state.latestOrders = [];
+    state.dislodgedUnits = [];
+
+    let hash = window.location.hash.split("#")[1];
+    let hashSplit = hash.split("-");
+    hashSplit.splice(0, 1);
+    let unitsString = hashSplit[0];
+    let latestOrdersString = hashSplit[1];
+
+    let unitStrings = unitsString.split(".");
+    unitStrings.splice(0, 1);
+    for (let unitString of unitStrings) {
+        let country = unitString.substring(0, 3);
+        let type = unitString.substring(3, 4);
+        let vertexName = unitString.substring(4, 7);
+        state.units.push({"country": country, "type": type, "vertexName": vertexName});
+    }
+
+    let latestOrdersStrings = latestOrdersString.split(".");
+    latestOrdersStrings.splice(0, 1);
+
+    console.log(latestOrdersString);
+
+    for (let latestOrderString of latestOrdersStrings) {
+        let country = latestOrderString.substring(0, 3);
+        let unitType = latestOrderString.substring(3,4);
+        let origin = latestOrderString.substring(4,7);
+        let action = latestOrderString.substring(7,11);
+        let destination = "";
+
+        if (action === "move") {
+            destination = latestOrderString.substring(11,14);
+        }
+        else if (action === "supp") {
+            destination = latestOrderString.substring(14,17);
+            action = "support";
+        }
+        else if (action === "conv") {
+            destination = latestOrderString.substring(13,16);
+            action = "convoy";
+        }
+
+        state.latestOrders.push({"country": country, "unitType": unitType, "action": action, "origin": getVertexFromName(origin), "destination": getVertexFromName(destination), "support": 0});
+    }
+
+    document.getElementById("latestOrders").innerText = ordersAsString(state.latestOrders);
+
+    redraw();
 }
 
 function resolveCircularOrders() {
@@ -656,6 +753,10 @@ function addHoldOrders() {
 
 function getVertexFromName(vertexName) {
 
+    if (vertexName === "") {
+        return "";
+    }
+
     for (let vertex of map.vertices) {
         if (vertex.name === vertexName) {
             return vertex;
@@ -684,12 +785,12 @@ function dislodgeHoldOrders() {
 }
 
 function resolveSupport() {
-    for (let moveOrder of orders) {
-        if (moveOrder.action === "move") {
+    for (let order of orders) {
+        if (order.action === "move" || order.action === "hold") {
             for (let supportOrder of orders) {
                 if (supportOrder.action === "support") {
-                    if (supportOrder.destination === moveOrder.origin) {
-                        moveOrder.support += 1;
+                    if (supportOrder.destination === order.origin) {
+                        order.support += 1;
                     }
                 }
             }
@@ -724,11 +825,6 @@ function destinationIsUncontested(order) {
 
 function getOrderAtVertex(vertex) {
     for (let order of orders) {
-        if (order.origin.name === vertex.name) {
-            return order;
-        }
-    }
-    for (let order of state.latestOrders) {
         if (order.origin.name === vertex.name) {
             return order;
         }
