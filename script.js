@@ -352,6 +352,8 @@ const map = {
   ]
 };
 
+let debug = false;
+
 const unitSquareSize = 20;
 
 const canvas = document.getElementById('canvas');
@@ -381,15 +383,17 @@ let orders = [];
 //functions
 function drawVertices() {
   // Draw edges
-  for (let edge of map.edges) {
-    const fromVertex = map.vertices.find(vertex => vertex.name === edge.from);
-    const toVertex = map.vertices.find(vertex => vertex.name === edge.to);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'black'; // set stroke color to black
-    ctx.beginPath();
-    ctx.moveTo(fromVertex.x*(canvas.width/100), fromVertex.y*(canvas.height/100));
-    ctx.lineTo(toVertex.x*(canvas.width/100), toVertex.y*(canvas.height/100));
-    ctx.stroke();
+  if (debug) {
+    for (let edge of map.edges) {
+        const fromVertex = map.vertices.find(vertex => vertex.name === edge.from);
+        const toVertex = map.vertices.find(vertex => vertex.name === edge.to);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'black'; // set stroke color to black
+        ctx.beginPath();
+        ctx.moveTo(fromVertex.x*(canvas.width/100), fromVertex.y*(canvas.height/100));
+        ctx.lineTo(toVertex.x*(canvas.width/100), toVertex.y*(canvas.height/100));
+        ctx.stroke();
+      }
   }
 
   // Draw vertices
@@ -535,6 +539,62 @@ function validMove(unit, destinationVertex) {
 function redraw() {
     ctx.clearRect(0,0,400,400);
     drawMap();
+}
+
+function encodeOrders() {
+    let ordersAsString = "";
+    let encodedOrders = "";
+    for (let order of orders) {
+        if (order.country === playerCountry) {
+            let destination = order.destination.name;
+            if (!destination) {
+                destination = "none"
+            }
+            ordersAsString += order.country + order.origin.name + order.action.substring(0,4) + destination;
+            encodedOrdersCharArray = ordersAsString.split("");
+            ordersAsNumbers = "";
+
+
+            for (let i = 0; i < encodedOrdersCharArray.length; i++) {
+                ordersAsNumbers += encodedOrdersCharArray[i].charCodeAt(0).toString().padStart(3, "0");
+            }
+        }
+    }
+
+    for (let i = 0; i < ordersAsNumbers.length; i += 3) {
+
+        encodedOrders += String.fromCharCode(parseInt(ordersAsNumbers.substring(i, i+3))+encodingVariable(i));
+    }
+
+    ordersAsString = "";
+    ordersAsNumbers = "";
+
+    document.getElementById("encodedOrders").innerText = encodedOrders;
+}
+
+function encodingVariable(i) {
+    return (i+2) % 17;
+}
+
+function decodingVariable(i) {
+    return -encodingVariable(i*3);
+}
+
+function decodeOrders(encodedOrders) {
+    let ordersAsNumbersArray = [];
+    let decodedOrders = "";
+    encodedOrdersArray = encodedOrders.split("");
+    for (let i = 0; i < encodedOrdersArray.length; i++) {
+        ordersAsNumbersArray.push(encodedOrdersArray[i].charCodeAt(0));
+    }
+
+    console.log(ordersAsNumbersArray);
+
+    for (let i = 0; i < ordersAsNumbersArray.length; i++) {
+        decodedOrders += String.fromCharCode(ordersAsNumbersArray[i] + decodingVariable(i));
+    }
+
+    console.log(decodedOrders);
 }
 
 function resolveOrders() {
