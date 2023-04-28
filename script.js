@@ -520,7 +520,7 @@ function addOrder(unit, action, originVertex, destinationVertex, support) {
         }
     }
 
-    orders.push({"country": playerCountry, "unitType": unit.type, "action": action, "origin": originVertex, "destination": destinationVertex, "support": support});
+    orders.push({"country": unit.country, "unitType": unit.type, "action": action, "origin": originVertex, "destination": destinationVertex, "support": support});
     document.getElementById("ordersString").innerText = ordersAsString(orders);
 }
 
@@ -541,6 +541,20 @@ function redraw() {
     drawMap();
 }
 
+function resolveEncodedOrders() {
+    orders = [];
+
+    let gerOrders = document.getElementById("gerOrders").value;
+    let fraOrders = document.getElementById("fraOrders").value;
+
+    console.log(gerOrders);
+
+    decodeOrders(gerOrders);
+    decodeOrders(fraOrders);
+
+    resolveOrders();
+}
+
 function encodeOrders() {
     let ordersAsString = "";
     let encodedOrders = "";
@@ -548,9 +562,9 @@ function encodeOrders() {
         if (order.country === playerCountry) {
             let destination = order.destination.name;
             if (!destination) {
-                destination = "none"
+                destination = "Non";
             }
-            ordersAsString += order.country + order.origin.name + order.action.substring(0,4) + destination;
+            ordersAsString += "-" + order.country + "." + order.origin.name + "." + order.action.substring(0,4) + "." + destination;
             encodedOrdersCharArray = ordersAsString.split("");
             ordersAsNumbers = "";
 
@@ -573,7 +587,7 @@ function encodeOrders() {
 }
 
 function encodingVariable(i) {
-    return (i+2) % 17;
+    return 0;
 }
 
 function decodingVariable(i) {
@@ -581,6 +595,15 @@ function decodingVariable(i) {
 }
 
 function decodeOrders(encodedOrders) {
+    if (encodedOrders[0] === " ") {
+        encodedOrders.substring(1, encodedOrders.length);
+    }
+    if (encodedOrders[encodedOrders.length-1] === " ") {
+        encodedOrders.substring(0, encodedOrders.length-1);
+    }
+
+    console.log(encodedOrders);
+
     let ordersAsNumbersArray = [];
     let decodedOrders = "";
     encodedOrdersArray = encodedOrders.split("");
@@ -595,6 +618,30 @@ function decodeOrders(encodedOrders) {
     }
 
     console.log(decodedOrders);
+
+    let decodedOrdersSplit = decodedOrders.split("-");
+    decodedOrdersSplit.splice(0, 1);
+
+    console.log(decodedOrdersSplit);
+
+    for (let i = 0; i < decodedOrdersSplit.length; i++) {
+        let orderParts = decodedOrdersSplit[i].split(".");
+        let originName = orderParts[1];
+        let action = orderParts[2];
+        let destinationName = orderParts[3];
+
+        let destination = "";
+        if (destinationName !== "Non") {
+            destination = getVertexFromName(destinationName.substring(0,3));
+        }
+
+        let origin = getVertexFromName(originName);
+        let unit = getUnitOnVertex(origin);
+
+        console.log("ADD ORDER");
+
+        addOrder(unit, action, origin, destination, 0);
+    }
 }
 
 function resolveOrders() {

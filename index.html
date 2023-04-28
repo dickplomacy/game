@@ -15,16 +15,19 @@
 
     <button id="gerbutton" onclick="selectCountry('GER')">GER</button>
     <button id="frabutton" onclick="selectCountry('FRA')">FRA</button>
-    <button onclick="resolveOrders()">Resolve Orders</button>
+    <br>
     <button id="holdbutton" onclick="setAction('hold')">Hold</button>
     <button id="movebutton" onclick="setAction('move')">Move</button>
     <button id="supportbutton" onclick="setAction('support')">Support</button>
     <button id="convoybutton" onclick="setAction('convoy')">Convoy</button>
+    <br>
     <button id="convoybutton" onclick="encodeOrders()">Encode Orders</button>
+    <button onclick="resolveOrders()">Resolve Orders</button>
+    <button onclick="resolveEncodedOrders()">Resolve Encoded Orders</button>
   
     <div>
-        <h3>ordersString:</h3>
-        <h4 id = "ordersString"></h4>
+      <h3>ordersString:</h3>
+      <h4 id = "ordersString"></h4>
     </div>
     <div>
       <h3>latestOrders:</h3>
@@ -37,6 +40,11 @@
     <div>
       <h3>encoded orders</h3>
       <href id = "encodedOrders"></href>
+    </div>
+    <div>
+      <h3>input</h3>
+      GER: <input type="text" id="gerOrders" value=""><br>
+      FRA: <input type="text" id="fraOrders" value=""><br>
     </div>
   </body>
 </html>
