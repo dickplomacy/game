@@ -547,101 +547,144 @@ function resolveEncodedOrders() {
     let gerOrders = document.getElementById("gerOrders").value;
     let fraOrders = document.getElementById("fraOrders").value;
 
-    console.log(gerOrders);
-
     decodeOrders(gerOrders);
     decodeOrders(fraOrders);
 
     resolveOrders();
 }
 
+function convertToNumber(str){
+    var number = "";
+    for (var i=0; i<str.length; i++){
+        var charCode = ('000' + str[i].charCodeAt(0)).substr(-3);
+        number += charCode;
+    }
+    return number;
+}
+
+function convertToString(numbers){
+    var origString = "";
+    numbers = numbers.match(/.{3}/g);
+    for(var i=0; i < numbers.length; i++){
+        origString += String.fromCharCode(numbers[i]);
+    }
+    return origString;
+}
+
 function encodeOrders() {
     let ordersAsString = "";
     let encodedOrders = "";
+
+    addHoldOrders();
+
     for (let order of orders) {
         if (order.country === playerCountry) {
-            let destination = order.destination.name;
-            if (!destination) {
-                destination = "Non";
+            let destinationName = "";
+            if (order.destination !== "") {
+                destinationName = order.destination.name;
             }
-            ordersAsString += "-" + order.country + "." + order.origin.name + "." + order.action.substring(0,4) + "." + destination;
-            encodedOrdersCharArray = ordersAsString.split("");
-            ordersAsNumbers = "";
-
-
-            for (let i = 0; i < encodedOrdersCharArray.length; i++) {
-                ordersAsNumbers += encodedOrdersCharArray[i].charCodeAt(0).toString().padStart(3, "0");
+            else {
+                destinationName = "Non";
             }
+            ordersAsString += "-" + order.origin.name.toLowerCase() + "." + order.action.substring(0,1) + "." + destinationName.toLowerCase();
         }
     }
 
-    for (let i = 0; i < ordersAsNumbers.length; i += 3) {
+    ordersAsString = ordersAsString.substring(1, ordersAsString.length);
 
-        encodedOrders += String.fromCharCode(parseInt(ordersAsNumbers.substring(i, i+3))+encodingVariable(i));
-    }
+    encodedOrders = convertToNumber(ordersAsString);
 
-    ordersAsString = "";
-    ordersAsNumbers = "";
+    console.log(encodedOrders);
 
     document.getElementById("encodedOrders").innerText = encodedOrders;
 }
 
-function encodingVariable(i) {
-    return 0;
-}
-
-function decodingVariable(i) {
-    return -encodingVariable(i*3);
-}
-
 function decodeOrders(encodedOrders) {
-    if (encodedOrders[0] === " ") {
-        encodedOrders.substring(1, encodedOrders.length);
-    }
-    if (encodedOrders[encodedOrders.length-1] === " ") {
-        encodedOrders.substring(0, encodedOrders.length-1);
-    }
-
-    console.log(encodedOrders);
-
-    let ordersAsNumbersArray = [];
-    let decodedOrders = "";
-    encodedOrdersArray = encodedOrders.split("");
-    for (let i = 0; i < encodedOrdersArray.length; i++) {
-        ordersAsNumbersArray.push(encodedOrdersArray[i].charCodeAt(0));
-    }
-
-    console.log(ordersAsNumbersArray);
-
-    for (let i = 0; i < ordersAsNumbersArray.length; i++) {
-        decodedOrders += String.fromCharCode(ordersAsNumbersArray[i] + decodingVariable(i));
-    }
-
-    console.log(decodedOrders);
-
-    let decodedOrdersSplit = decodedOrders.split("-");
-    decodedOrdersSplit.splice(0, 1);
-
-    console.log(decodedOrdersSplit);
-
-    for (let i = 0; i < decodedOrdersSplit.length; i++) {
-        let orderParts = decodedOrdersSplit[i].split(".");
-        let originName = orderParts[1];
-        let action = orderParts[2];
-        let destinationName = orderParts[3];
-
-        let destination = "";
-        if (destinationName !== "Non") {
-            destination = getVertexFromName(destinationName.substring(0,3));
+    if (encodedOrders) {
+        if (encodedOrders[0] === " ") {
+            encodedOrders.substring(1, encodedOrders.length);
         }
+        if (encodedOrders[encodedOrders.length-1] === " ") {
+            encodedOrders.substring(0, encodedOrders.length-1);
+        }
+    
+        let decodedOrders = convertToString(encodedOrders);
+    
+        let decodedOrdersSplit = decodedOrders.split("-");
+    
+        for (let i = 0; i < decodedOrdersSplit.length; i++) {
+            let orderParts = decodedOrdersSplit[i].split(".");
+            let originName = orderParts[0];
+            let action = orderParts[1];
 
-        let origin = getVertexFromName(originName);
-        let unit = getUnitOnVertex(origin);
+            if (action === "m") {
+                action = "move";
+            }
+            else if (action === "h") {
+                action = "hold";
+            }
+            else if (action === "c") {
+                action = "convoy";
+            }
+            else if (action === "s") {
+                action = "support";
+            }
 
-        console.log("ADD ORDER");
-
-        addOrder(unit, action, origin, destination, 0);
+            let destinationName = withFirstLetterUpperCase(orderParts[2]);
+            let destination = "";
+            if (destinationName !== "Non") {
+                destination = getVertexFromName(destinationName.substring(0,3));
+            }
+    
+            let origin = getVertexFromName(withFirstLetterUpperCase(originName));
+            let unit = getUnitOnVertex(origin);
+    
+            if (orderHasValidComponents(unit, action, origin, destination)) {
+                addOrder(unit, action, origin, destination, 0);
+            }
+            else {
+                console.log("invalid orders");
+            }
+        }
     }
+}
+
+function orderHasValidComponents(unit, action, origin, destination) {
+    let unitIsValid = false;
+    for (let stateUnit of state.units) {
+        if (unit === stateUnit) {
+            unitIsValid = true;
+        }
+    }
+    
+    let actionIsValid = false;
+    if (action === "move" || action === "support" || action === "hold" || action === "convoy") {
+        actionIsValid = true;
+    }
+
+    let originIsValid = false;
+    let destinationIsValid = false;
+    for (let vertex of map.vertices) {
+        if (vertex.name === origin.name) {
+            originIsValid = true;
+        }
+        if (vertex.name === destination.name) {
+            destinationIsValid = true;
+        }
+    }
+    if (destination === "") {
+        if (action === "hold") {
+            destinationIsValid = true;
+        }
+    }
+
+    return unitIsValid && actionIsValid && originIsValid && destinationIsValid;
+}
+
+function withFirstLetterUpperCase(str) {
+    let firstLetter = str.split('')[0];
+    let stringWithoutFirstLetter = str.substring(1, str.length);
+    return firstLetter.toUpperCase() + stringWithoutFirstLetter;
 }
 
 function resolveOrders() {
@@ -672,9 +715,8 @@ function resolveOrders() {
         document.getElementById("ordersString").innerText = ordersAsString(orders);
 
         redraw();
-        console.log("asdasad");
+
         setLink(latestOrdersForHash);
-        console.log("asdasd");
     }
 }
 
@@ -684,9 +726,6 @@ function setLink(latestOrdersForHash) {
         stateHash += "." + unit.country + unit.type + unit.vertexName; 
     }
     stateHash += "-";
-
-    console.log(latestOrdersForHash)
-    console.log("asd");
 
     for (let latestOrder of latestOrdersForHash) {
         stateHash += "." + latestOrder.country + latestOrder.unitType + latestOrder.origin.name + latestOrder.action;
