@@ -1,4 +1,12 @@
 //constants
+
+const ausColor = "red";
+const engColor = "blue";
+const fraColor = "teal";
+const gerColor = "black";
+const itaColor = "green";
+const rusColor = "white";
+const turColor = "orange";
     
 const map = {
   "vertices": [
@@ -346,9 +354,6 @@ const map = {
     { "from": "Ukr", "to": "War" },
 
     { "from": "Yor", "to": "Wal" },
-
-
-
   ]
 };
 
@@ -363,9 +368,34 @@ let playerCountry = "";
 
 const initialState = {
     "units": [
-        { "country": "GER", "type": "F", "vertexName": "Hol"},
-        { "country": "GER", "type": "A", "vertexName": "Ruh"},
-        { "country": "FRA", "type": "A", "vertexName": "Bel"},
+        { "country": "AUS", "type": "A", "vertexName": "Vie"},
+        { "country": "AUS", "type": "A", "vertexName": "Bud"},
+        { "country": "AUS", "type": "F", "vertexName": "Tri"},
+
+        { "country": "ENG", "type": "A", "vertexName": "Lpl"},
+        { "country": "ENG", "type": "F", "vertexName": "Lon"},
+        { "country": "ENG", "type": "F", "vertexName": "Edi"},
+        
+        { "country": "FRA", "type": "A", "vertexName": "Par"},
+        { "country": "FRA", "type": "A", "vertexName": "Mar"},
+        { "country": "FRA", "type": "F", "vertexName": "Bre"},
+
+        { "country": "GER", "type": "F", "vertexName": "Kie"},
+        { "country": "GER", "type": "A", "vertexName": "Ber"},
+        { "country": "GER", "type": "A", "vertexName": "Mun"},
+
+        { "country": "ITA", "type": "A", "vertexName": "Ven"},
+        { "country": "ITA", "type": "A", "vertexName": "Rom"},
+        { "country": "ITA", "type": "F", "vertexName": "Nap"},
+
+        { "country": "RUS", "type": "A", "vertexName": "Mos"},
+        { "country": "RUS", "type": "A", "vertexName": "War"},
+        { "country": "RUS", "type": "F", "vertexName": "Sev"},
+        { "country": "RUS", "type": "F", "vertexName": "Stp"},
+
+        { "country": "TUR", "type": "A", "vertexName": "Con"},
+        { "country": "TUR", "type": "A", "vertexName": "Smy"},
+        { "country": "TUR", "type": "F", "vertexName": "Ank"},
     ],
     "latestOrders": [],
     "dislodgedUnits" : []
@@ -430,13 +460,28 @@ function drawUnits() {
     for (let unit of state.units) {
         for (let vertex of map.vertices) {
             if (vertex.name === unit.vertexName) {
-                if (unit.country === "GER") {
-                    ctx.fillStyle = "red";
+                if (unit.country === "AUS") {
+                    ctx.fillStyle = ausColor;
+                }
+                else if (unit.country === "ENG") {
+                    ctx.fillStyle = engColor;
                 }
                 else if (unit.country === "FRA") {
-                    ctx.fillStyle = "blue";
+                    ctx.fillStyle = fraColor;
                 }
-
+                else if (unit.country === "GER") {
+                    ctx.fillStyle = gerColor;
+                }
+                else if (unit.country === "ITA") {
+                    ctx.fillStyle = itaColor;
+                }
+                else if (unit.country === "RUS") {
+                    ctx.fillStyle = rusColor;
+                }
+                else if (unit.country === "TUR") {
+                    ctx.fillStyle = turColor;
+                }
+                
                 if (unit.type === "A") {
                     ctx.fillRect(vertex.x*(canvas.width/100)-unitSquareSize/2, vertex.y*(canvas.height/100)-unitSquareSize/2, unitSquareSize, unitSquareSize);
 
@@ -496,11 +541,26 @@ function getUnitOnVertex(vertex) {
 function selectCountry(countryName) {
     playerCountry = countryName;
     setCountryButtonColors();
-    if (playerCountry === "GER") {
-        document.getElementById("gerbutton").style.backgroundColor = "red";
+    if (playerCountry === "AUS") {
+        document.getElementById("ausbutton").style.backgroundColor = "red";
+    }
+    else if (playerCountry === "ENG") {
+        document.getElementById("engbutton").style.backgroundColor = "red";
     }
     else if (playerCountry === "FRA") {
         document.getElementById("frabutton").style.backgroundColor = "red";
+    }
+    else if (playerCountry === "GER") {
+        document.getElementById("gerbutton").style.backgroundColor = "red";
+    }
+    else if (playerCountry === "ITA") {
+        document.getElementById("itabutton").style.backgroundColor = "red";
+    }
+    else if (playerCountry === "RUS") {
+        document.getElementById("rusbutton").style.backgroundColor = "red";
+    }
+    else if (playerCountry === "TUR") {
+        document.getElementById("turbutton").style.backgroundColor = "red";
     }
 }
 
@@ -544,11 +604,21 @@ function redraw() {
 function resolveEncodedOrders() {
     orders = [];
 
-    let gerOrders = document.getElementById("gerOrders").value;
+    let ausOrders = document.getElementById("ausOrders").value;
+    let engOrders = document.getElementById("engOrders").value;
     let fraOrders = document.getElementById("fraOrders").value;
+    let gerOrders = document.getElementById("gerOrders").value;
+    let itaOrders = document.getElementById("itaOrders").value;
+    let rusOrders = document.getElementById("rusOrders").value;
+    let turOrders = document.getElementById("turOrders").value;
 
-    decodeOrders(gerOrders);
+    decodeOrders(ausOrders);
+    decodeOrders(engOrders);
     decodeOrders(fraOrders);
+    decodeOrders(gerOrders);
+    decodeOrders(itaOrders);
+    decodeOrders(rusOrders);
+    decodeOrders(turOrders);
 
     resolveOrders();
 }
@@ -1064,8 +1134,13 @@ function setButtonColors() {
 }
 
 function setCountryButtonColors() {
-    document.getElementById("gerbutton").style.backgroundColor = "pink";
+    document.getElementById("ausbutton").style.backgroundColor = "pink";
+    document.getElementById("engbutton").style.backgroundColor = "pink";
     document.getElementById("frabutton").style.backgroundColor = "pink";
+    document.getElementById("gerbutton").style.backgroundColor = "pink";
+    document.getElementById("itabutton").style.backgroundColor = "pink";
+    document.getElementById("rusbutton").style.backgroundColor = "pink";
+    document.getElementById("turbutton").style.backgroundColor = "pink";
 }
 
 let orderInProgress = false;
