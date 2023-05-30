@@ -612,13 +612,13 @@ function resolveEncodedOrders() {
     let rusOrders = document.getElementById("rusOrders").value;
     let turOrders = document.getElementById("turOrders").value;
 
-    decodeOrders(ausOrders);
-    decodeOrders(engOrders);
-    decodeOrders(fraOrders);
-    decodeOrders(gerOrders);
-    decodeOrders(itaOrders);
-    decodeOrders(rusOrders);
-    decodeOrders(turOrders);
+    decodeOrders(ausOrders, "AUS");
+    decodeOrders(engOrders, "ENG");
+    decodeOrders(fraOrders, "FRA");
+    decodeOrders(gerOrders, "GER");
+    decodeOrders(itaOrders, "ITA");
+    decodeOrders(rusOrders, "RUS");
+    decodeOrders(turOrders, "TUR");
 
     resolveOrders();
 }
@@ -669,7 +669,7 @@ function encodeOrders() {
     document.getElementById("encodedOrders").innerText = encodedOrders;
 }
 
-function decodeOrders(encodedOrders) {
+function decodeOrders(encodedOrders, orderingCountry) {
     if (encodedOrders) {
         if (encodedOrders[0] === " ") {
             encodedOrders.substring(1, encodedOrders.length);
@@ -709,7 +709,7 @@ function decodeOrders(encodedOrders) {
             let origin = getVertexFromName(withFirstLetterUpperCase(originName));
             let unit = getUnitOnVertex(origin);
     
-            if (orderHasValidComponents(unit, action, origin, destination)) {
+            if (orderHasValidComponents(unit, action, origin, destination, orderingCountry)) {
                 addOrder(unit, action, origin, destination, 0);
             }
             else {
@@ -719,12 +719,17 @@ function decodeOrders(encodedOrders) {
     }
 }
 
-function orderHasValidComponents(unit, action, origin, destination) {
+function orderHasValidComponents(unit, action, origin, destination, orderingCountry) {
     let unitIsValid = false;
     for (let stateUnit of state.units) {
         if (unit === stateUnit) {
             unitIsValid = true;
         }
+    }
+
+    let countryIsValid = false;
+    if(unit.country === orderingCountry) {
+        countryIsValid = true;
     }
     
     let actionIsValid = false;
@@ -748,7 +753,7 @@ function orderHasValidComponents(unit, action, origin, destination) {
         }
     }
 
-    return unitIsValid && actionIsValid && originIsValid && destinationIsValid;
+    return unitIsValid && actionIsValid && originIsValid && destinationIsValid && countryIsValid;
 }
 
 function withFirstLetterUpperCase(str) {
