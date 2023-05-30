@@ -367,6 +367,43 @@ const ctx = canvas.getContext('2d');
 let playerCountry = "";
 
 const initialState = {
+    "supplyCenters": [
+        { "name": "Ank", "owner": "" },
+        { "name": "Bel", "owner": "" },
+        { "name": "Ber", "owner": "" },
+        { "name": "Bre", "owner": "" },
+        { "name": "Bud", "owner": "" },
+        { "name": "Bul", "owner": "" },
+        { "name": "Con", "owner": "" },
+        { "name": "Den", "owner": "" },
+        { "name": "Edi", "owner": "" },
+        { "name": "Gre", "owner": "" },
+        { "name": "Hol", "owner": "" },
+        { "name": "Kie", "owner": "" },
+        { "name": "Lon", "owner": "" },
+        { "name": "Lpl", "owner": "" },
+        { "name": "Mar", "owner": "" },
+        { "name": "Mos", "owner": "" },
+        { "name": "Mun", "owner": "" },
+        { "name": "Nap", "owner": "" },
+        { "name": "Nwy", "owner": "" },
+        { "name": "Par", "owner": "" },
+        { "name": "Por", "owner": "" },
+        { "name": "Rom", "owner": "" },
+        { "name": "Rum", "owner": "" },
+        { "name": "Ser", "owner": "" },
+        { "name": "Sev", "owner": "" },
+        { "name": "Smy", "owner": "" },
+        { "name": "Spa", "owner": "" },
+        { "name": "Stp", "owner": "" },
+        { "name": "Swe", "owner": "" },
+        { "name": "Tri", "owner": "" },
+        { "name": "Tun", "owner": "" },
+        { "name": "Ven", "owner": "" },
+        { "name": "Vie", "owner": "" },
+        { "name": "War", "owner": "" },
+    ],
+
     "units": [
         { "country": "AUS", "type": "A", "vertexName": "Vie"},
         { "country": "AUS", "type": "A", "vertexName": "Bud"},
@@ -436,16 +473,37 @@ function drawVertices() {
     let yPosition = vertex.y*(canvas.height/100) - vertexSideLength/2;
 
     ctx.strokeRect(xPosition, yPosition, vertexSideLength, vertexSideLength); // draw a rectangular border
-    if (vertex.type === "land") {
-        ctx.strokeStyle = "brown";
+
+    for (let sc of state.supplyCenters) {
+        if (vertex.name === sc.name) {
+            if (sc.owner === "AUS") {
+                ctx.strokeStyle = ausColor;
+            }
+            else if (sc.owner === "ENG") {
+                ctx.strokeStyle = engColor;
+            }
+            else if (sc.owner === "FRA") {
+                ctx.strokeStyle = fraColor;
+            }
+            else if (sc.owner === "GER") {
+                ctx.strokeStyle = gerColor;
+            }
+            else if (sc.owner === "ITA") {
+                ctx.strokeStyle = itaColor;
+            }
+            else if (sc.owner === "RUS") {
+                ctx.strokeStyle = rusColor;
+            }
+            else if (sc.owner === "TUR") {
+                ctx.strokeStyle = turColor;
+            }
+            
+            if (sc.owner) {
+                ctx.strokeRect(xPosition + lineWidth, yPosition + lineWidth, vertexSideLength - 2*lineWidth, vertexSideLength - 2*lineWidth); // draw a rectangular border
+            }
+        }
     }
-    else if (vertex.type === "coast") {
-        ctx.strokeStyle = "orange";
-    }
-    else if (vertex.type === "sea") {
-        ctx.strokeStyle = "teal";
-    }
-    ctx.strokeRect(xPosition + lineWidth, yPosition + lineWidth, vertexSideLength - 2*lineWidth, vertexSideLength - 2*lineWidth); // draw a rectangular border
+
     ctx.font = "bold 14px Arial";
     ctx.fillStyle = "#000000";
     ctx.textAlign = "center";
@@ -789,9 +847,21 @@ function resolveOrders() {
         orders = [];
         document.getElementById("ordersString").innerText = ordersAsString(orders);
 
+        refreshSupplyCenters();
+
         redraw();
 
         setLink(latestOrdersForHash);
+    }
+}
+
+function refreshSupplyCenters() {
+    for (let unit of state.units) {
+        for (let sc of state.supplyCenters) {
+            if (sc.name === unit.vertexName) {
+                sc.owner = unit.country;
+            }
+        }
     }
 }
 
@@ -809,6 +879,18 @@ function setLink(latestOrdersForHash) {
         }
         else {
             stateHash += latestOrder.destination.name;
+        }
+    }
+    
+    stateHash += "-";
+    for (let sc of state.supplyCenters) {
+        stateHash += "." + sc.name;
+
+        if (!sc.owner) {
+            stateHash += "_";
+        }
+        else {
+            stateHash += sc.owner;
         }
     }
 
@@ -834,12 +916,14 @@ function decodeStateHash() {
     state.units = [];
     state.latestOrders = [];
     state.dislodgedUnits = [];
+    state.supplyCenters = initialState.supplyCenters;
 
     let hash = window.location.hash.split("#")[1];
     let hashSplit = hash.split("-");
     hashSplit.splice(0, 1);
     let unitsString = hashSplit[0];
     let latestOrdersString = hashSplit[1];
+    let supplyCentersString = hashSplit[2];
 
     let unitStrings = unitsString.split(".");
     unitStrings.splice(0, 1);
@@ -875,6 +959,16 @@ function decodeStateHash() {
         }
 
         state.latestOrders.push({"country": country, "unitType": unitType, "action": action, "origin": getVertexFromName(origin), "destination": getVertexFromName(destination), "support": 0});
+    }
+
+    let supplyCentersStrings = supplyCentersString.split(".");
+    for (let supplyCenterString of supplyCentersStrings) {
+        let name = supplyCenterString.substring(0, 3);
+        let owner = supplyCenterString.substring(3, 6);
+
+        if (owner !== "_") {
+            state.supplyCenters.push({"name": name, "owner": owner});
+        }
     }
 
     document.getElementById("latestOrders").innerText = ordersAsString(state.latestOrders);
