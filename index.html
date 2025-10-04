@@ -1,61 +1,20 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <title>Dickplomacy</title>
-    <style>
-      canvas {
-        border: 1px solid black;
-      }
-    </style>
-  </head>
-  <body>
-    <canvas id="canvas" width="1600" height="1400"></canvas>
-    <script src="script.js"></script>
-
-    <button id="ausbutton" onclick="selectCountry('AUS')">AUS</button>
-    <button id="engbutton" onclick="selectCountry('ENG')">ENG</button>
-    <button id="frabutton" onclick="selectCountry('FRA')">FRA</button>
-    <button id="gerbutton" onclick="selectCountry('GER')">GER</button>
-    <button id="itabutton" onclick="selectCountry('ITA')">ITA</button>
-    <button id="rusbutton" onclick="selectCountry('RUS')">RUS</button>
-    <button id="turbutton" onclick="selectCountry('TUR')">TUR</button>
-
-    <br>
-    <button id="holdbutton" onclick="setAction('hold')">Hold</button>
-    <button id="movebutton" onclick="setAction('move')">Move</button>
-    <button id="supportbutton" onclick="setAction('support')">Support</button>
-    <button id="convoybutton" onclick="setAction('convoy')">Convoy</button>
-    <br>
-    <button id="convoybutton" onclick="encodeOrders()">Encode Orders</button>
-    <button onclick="resolveOrders()">Resolve Orders</button>
-    <button onclick="resolveEncodedOrders()">Resolve Encoded Orders</button>
-  
-    <div>
-      <h3>ordersString:</h3>
-      <h4 id = "ordersString"></h4>
-    </div>
-    <div>
-      <h3>latestOrders:</h3>
-      <h4 id = "latestOrders"></h4>
-    </div>
-    <div>
-      <h3>game link</h3>
-      <h4 id = "gameLink"></h4>
-    </div>
-    <div>
-      <h3>encoded orders</h3>
-      <href id = "encodedOrders"></href>
-    </div>
-    <div>
-      <h3>input</h3>
-      AUS: <input type="text" id="ausOrders" value=""><br>
-      ENG: <input type="text" id="engOrders" value=""><br>
-      FRA: <input type="text" id="fraOrders" value=""><br>
-      GER: <input type="text" id="gerOrders" value=""><br>
-      ITA: <input type="text" id="itaOrders" value=""><br>
-      RUS: <input type="text" id="rusOrders" value=""><br>
-      TUR: <input type="text" id="turOrders" value=""><br>
-    </div>
-  </body>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dickplomacy</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial}
+    .wrap{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#fff}
+    h1{margin:0 0 1rem;font-size:2.25rem;letter-spacing:0.02em}
+    img{max-width:90%;height:auto;border:0}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>dickplomacy</h1>
+    <img src="dipmap.jpg" alt="dipmap">
+  </div>
+</body>
 </html>

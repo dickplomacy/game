@@ -1,3 +1,3 @@
-# dickplomacy - the stateless diplomacy!
+# dickplomacy
 
 [link to game](https://dickplomacy.github.io/game/)
