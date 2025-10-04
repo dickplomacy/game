@@ -1289,5 +1289,6 @@ canvas.addEventListener('click', function(event) {
         orderInProgress = false;
         unitOriginVertex = -1;
         actionUnit = {};
+        
     }
 });
