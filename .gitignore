@@ -1,2 +1,5 @@
 node_modules
 dist
+# Ignore combined files script and output
+allfiles.txt
+get-allfiles.ps1
