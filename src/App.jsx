@@ -11,7 +11,7 @@ function App() {
       background: '#fff'
     }}>
       <h1 style={{ margin: '0 0 1rem', fontSize: '2.25rem', letterSpacing: '0.02em' }}>
-        dickplomacy
+        dickplomacy - deploy test
       </h1>
       <img
         src="public/dipmap.jpg" 
