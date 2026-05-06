@@ -17,7 +17,35 @@ function getClass(id, owners) {
   return owner ? owner.toLowerCase() : 'neutral';
 }
 
-export default function DipMap({ territoryOwners = {}, onTerritoryClick, onTerritoryHover }) {
+const POWER_COLORS = {
+  AUSTRIA: '#c48f85',
+  ENGLAND: 'darkviolet',
+  FRANCE: 'royalblue',
+  GERMANY: '#a08a75',
+  ITALY: 'forestgreen',
+  RUSSIA: '#757d91',
+  TURKEY: '#b9a61c',
+};
+
+function UnitSymbol({ unit, selected, onClick }) {
+  const { x, y, type, power } = unit;
+  const color = POWER_COLORS[power] || '#999';
+  const r = 13;
+  return (
+    <g onClick={(e) => { e.stopPropagation(); onClick && onClick(unit); }} style={{ cursor: 'pointer' }}>
+      {type === 'A'
+        ? <rect x={x - r} y={y - r} width={r * 2} height={r * 2} rx={3}
+            fill={color} stroke={selected ? '#ffcc00' : '#222'} strokeWidth={selected ? 2.5 : 1.5} />
+        : <circle cx={x} cy={y} r={r}
+            fill={color} stroke={selected ? '#ffcc00' : '#222'} strokeWidth={selected ? 2.5 : 1.5} />
+      }
+      <text x={x} y={y + 4} textAnchor="middle" fontSize={11} fontWeight="bold" fill="white"
+        style={{ pointerEvents: 'none', userSelect: 'none' }}>{type}</text>
+    </g>
+  );
+}
+
+export default function DipMap({ territoryOwners = {}, units = [], selectedUnit = null, onTerritoryClick, onTerritoryHover, onUnitClick }) {
   return (
     <svg
       viewBox="0 0 1835 1360"
@@ -115,6 +143,16 @@ export default function DipMap({ territoryOwners = {}, onTerritoryClick, onTerri
         <path d="M 939 716 C 933 720 923 725 917 728 C 912 729 904 731 900 734 C 896 737 895 742 894 746 C 892 754 888 769 889 777 C 891 785 894 784 894 796 C 899 796 912 796 916 798 C 919 794 919 789 920 784 C 922 779 927 774 930 770 C 932 768 934 767 936 766 C 938 766 942 768 943 763 C 943 757 933 755 934 747 C 934 743 938 738 940 734 C 943 728 943 721 939 716 z M 946 786 C 951 798 951 796 959 805 C 962 809 962 810 967 813 C 967 813 969 804 969 804 C 971 802 974 800 974 797 C 975 795 973 791 972 788 C 970 782 972 777 964 775 C 963 775 959 775 958 775 C 954 776 955 780 946 786 z M 944 812 C 943 813 943 815 943 816 C 942 826 959 823 952 815 C 951 815 950 814 949 814 C 947 813 946 812 944 812 z"/>
         <path d="M 919 800 C 926 804 928 807 932 813 C 935 817 938 823 943 825 C 950 828 962 823 967 818 C 970 816 973 811 975 808 C 978 805 980 801 981 797 C 982 787 978 782 976 773 C 976 773 965 771 965 771 C 965 771 943 769 943 769 C 943 769 935 769 935 769 C 935 769 926 778 926 778 C 926 778 922 786 922 786 C 922 786 919 800 919 800 z M 966 815 C 961 812 959 809 955 805 C 952 802 945 792 944 788 C 944 785 947 783 949 781 C 953 777 955 772 961 772 C 973 772 972 779 975 788 C 976 792 978 795 976 799 C 975 805 969 810 966 815 z M 957 821 C 954 822 952 823 949 823 C 935 824 939 804 951 812 C 952 813 953 814 954 815 C 956 817 956 819 957 821 z"/>
       </g>
+      </g>
+      <g>
+        {units.map(unit => (
+          <UnitSymbol
+            key={unit.id}
+            unit={unit}
+            selected={selectedUnit !== null && selectedUnit.id === unit.id}
+            onClick={onUnitClick}
+          />
+        ))}
       </g>
     </svg>
   );
