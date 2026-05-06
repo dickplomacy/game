@@ -4,33 +4,45 @@ import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 
-function getValidMoves(unit) {
-  const t = territories[unit.id];
-  if (!t) return [];
-  const moves = (unit.type === 'A' ? t.moves.army : t.moves.fleet) || [];
-  // Coast variant with no moves — fall back to base territory
-  if (moves.length === 0 && unit.id.includes('-')) {
-    const base = territories[unit.id.split('-')[0]];
-    if (base) return (unit.type === 'A' ? base.moves.army : base.moves.fleet) || [];
-  }
-  return moves;
+// Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
+function displayId(id) {
+  return id.replace('-', '/').toUpperCase();
 }
 
-function getDisplayMoves(unit, allUnits) {
-  if (!unit) return new Set();
-  const moves = getValidMoves(unit);
-  // Build occupied set including base IDs for coast variant units
-  const occupiedIds = new Set();
-  allUnits.forEach(u => {
-    occupiedIds.add(u.id);
-    if (u.id.includes('-')) occupiedIds.add(u.id.split('-')[0]);
-  });
-  return new Set(
-    moves
-      .filter(id => !occupiedIds.has(id))
-      .map(id => id.includes('-') ? id.split('-')[0] : id)
-  );
+// Only true restriction: armies can't go to water, fleets can't go to landlocked
+function canOrderTo(unitType, destId) {
+  const baseId = destId.includes('-') ? destId.split('-')[0] : destId;
+  const dest = territories[baseId];
+  if (!dest) return false;
+  if (unitType === 'A' && dest.type === 'water') return false;
+  if (unitType === 'F' && dest.type === 'land') return false;
+  return true;
 }
+
+// Adjacency-based highlighting (visual guide only — orders are not restricted to these)
+function getDisplayMoves(unit) {
+  if (!unit) return new Set();
+  const t = territories[unit.id];
+  if (!t) return new Set();
+  let moves = (unit.type === 'A' ? t.moves.army : t.moves.fleet) || [];
+  if (moves.length === 0 && unit.id.includes('-')) {
+    const base = territories[unit.id.split('-')[0]];
+    if (base) moves = (unit.type === 'A' ? base.moves.army : base.moves.fleet) || [];
+  }
+  return new Set(moves.map(id => id.includes('-') ? id.split('-')[0] : id));
+}
+
+const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'];
+
+const POWER_COLOR = {
+  AUSTRIA: '#b22',
+  ENGLAND: '#226',
+  FRANCE:  '#07c',
+  GERMANY: '#666',
+  ITALY:   '#171',
+  RUSSIA:  '#999',
+  TURKEY:  '#c80',
+};
 
 // Standard Diplomacy starting positions
 // Unit coordinates from SvgStandardMetadata.js (AGPL-3.0, Philip Paquette, Steven Bocco)
@@ -61,9 +73,10 @@ const STARTING_UNITS = [
 
 function App() {
   const [title, setTitle] = useState("loading...");
-  const [units, setUnits] = useState(STARTING_UNITS);
+  // setUnits will be used when resolver updates unit positions
+  const [units, setUnits] = useState(STARTING_UNITS); // eslint-disable-line no-unused-vars
   const [selectedUnit, setSelectedUnit] = useState(null);
-  const [hovering, setHovering] = useState(null);
+  const [orders, setOrders] = useState({}); // { unitId: destId }
 
   useEffect(() => {
     getDoc(doc(db, "config", "ui")).then((snap) => {
@@ -72,7 +85,6 @@ function App() {
     });
   }, []);
 
-  // Find a unit at territory `id`, also matching coast variants (e.g. 'stp' finds 'stp-sc')
   function findUnit(id) {
     return units.find(u => u.id === id || u.id.startsWith(id + '-')) || null;
   }
@@ -84,21 +96,11 @@ function App() {
         setSelectedUnit(null);
         return;
       }
-      const moves = getValidMoves(selectedUnit);
-      const directMove = moves.includes(id);
-      const coastMove = !directMove && moves.find(m => m.startsWith(id + '-'));
-      if (directMove || coastMove) {
-        const destId = coastMove || id;
-        const dest = territories[destId];
-        if (dest && dest.unitCoord) {
-          const { x, y } = dest.unitCoord;
-          setUnits(prev => {
-            if (prev.find(u => u.id === destId)) return prev; // occupied
-            return prev.map(u => u.id === selectedUnit.id ? { ...u, id: destId, x, y } : u);
-          });
-        }
+      if (canOrderTo(selectedUnit.type, id)) {
+        setOrders(prev => ({ ...prev, [selectedUnit.id]: id }));
         setSelectedUnit(null);
       } else {
+        // Invalid type: try to switch to a unit on that territory
         setSelectedUnit(findUnit(id));
       }
     } else {
@@ -106,35 +108,71 @@ function App() {
     }
   }
 
+  function cancelOrder(unitId) {
+    setOrders(prev => { const next = { ...prev }; delete next[unitId]; return next; });
+  }
+
+  function resolveOrders() {
+    // TODO: implement resolution
+  }
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      margin: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
-      background: '#fff',
-      padding: '1rem',
-    }}>
-      <h1 style={{ margin: '0 0 0.5rem', fontSize: '2.25rem', letterSpacing: '0.02em' }}>
-        {title}
-      </h1>
-      <p style={{ margin: '0 0 1rem', color: '#555', minHeight: '1.5em' }}>
-        {hovering
-          ? `Hovering: ${hovering}`
-          : selectedUnit
-          ? `${selectedUnit.power} ${selectedUnit.type} @ ${selectedUnit.id.toUpperCase()} — click a highlighted territory to move`
-          : 'Click a unit to select it'}
-      </p>
-      <div style={{ width: '100%', maxWidth: '960px' }}>
-        <DipMap
-          units={units}
-          selectedUnit={selectedUnit}
-          validMoves={getDisplayMoves(selectedUnit, units)}
-          onTerritoryClick={handleTerritoryClick}
-          onTerritoryHover={setHovering}
-        />
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', background: '#fff' }}>
+      <h1 style={{ textAlign: 'center', margin: '0.5rem 0 0', fontSize: '2rem' }}>{title}</h1>
+      <div style={{ display: 'flex', flex: 1, gap: '0.75rem', padding: '0.5rem 0.75rem' }}>
+
+        {/* Orders panel */}
+        <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            onClick={resolveOrders}
+            style={{ padding: '7px 10px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 13, letterSpacing: '0.03em' }}
+          >
+            ▶ Resolve Orders
+          </button>
+          {POWERS.map(power => {
+            const powerUnits = units.filter(u => u.power === power);
+            return (
+              <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3 }}>
+                  {power}
+                </div>
+                {powerUnits.map(u => {
+                  const dest = orders[u.id];
+                  return (
+                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', fontSize: 11, marginBottom: 2, color: dest ? '#111' : '#bbb' }}>
+                      <span style={{ fontFamily: 'monospace', flex: 1 }}>
+                        {u.type} {displayId(u.id)}{dest ? ` → ${displayId(dest)}` : ''}
+                      </span>
+                      {dest && (
+                        <button
+                          onClick={() => cancelOrder(u.id)}
+                          style={{ marginLeft: 3, fontSize: 9, padding: '1px 4px', cursor: 'pointer', border: '1px solid #ccc', background: 'none', borderRadius: 2, lineHeight: 1.6, color: '#888' }}
+                        >✕</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Map */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 4, minHeight: '1.4em' }}>
+            {selectedUnit
+              ? `${selectedUnit.power} ${selectedUnit.type} ${displayId(selectedUnit.id)} — click any territory to order`
+              : 'Click a unit to select it'}
+          </div>
+          <DipMap
+            units={units}
+            selectedUnit={selectedUnit}
+            validMoves={getDisplayMoves(selectedUnit)}
+            onTerritoryClick={handleTerritoryClick}
+            onTerritoryHover={() => {}}
+          />
+        </div>
+
       </div>
     </div>
   );
