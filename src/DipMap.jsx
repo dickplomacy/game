@@ -39,7 +39,7 @@ function UnitSymbol({ unit, selected }) {
   );
 }
 
-export default function DipMap({ territoryOwners = {}, units = [], selectedUnit = null, onTerritoryClick, onTerritoryHover }) {
+export default function DipMap({ territoryOwners = {}, units = [], selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover }) {
   const tList = Object.values(territories);
   return (
     <svg
@@ -50,7 +50,7 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
       <g transform="translate(-195 -170)">
         {tList.map(t => {
           if (!t.svg) return null;
-          const cls = getClass(t, territoryOwners);
+          const cls = getClass(t, territoryOwners) + (validMoves.has(t.id) ? ' valid-move' : '');
           const handlers = {
             onClick: () => onTerritoryClick && onTerritoryClick(t.id),
             onMouseOver: () => onTerritoryHover && onTerritoryHover(t.id),

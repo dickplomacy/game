@@ -2,6 +2,24 @@ import { useEffect, useState } from "react";
 import { db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
+import territories from "./territories.json";
+
+function getValidMoves(unit) {
+  const t = territories[unit.id];
+  if (!t) return [];
+  return (unit.type === 'A' ? t.moves.army : t.moves.fleet) || [];
+}
+
+function getDisplayMoves(unit, allUnits) {
+  if (!unit) return new Set();
+  const moves = getValidMoves(unit);
+  const occupiedIds = new Set(allUnits.map(u => u.id));
+  return new Set(
+    moves
+      .filter(id => !occupiedIds.has(id))
+      .map(id => id.includes('-') ? id.split('-')[0] : id)
+  );
+}
 
 // Standard Diplomacy starting positions
 // Unit coordinates from SvgStandardMetadata.js (AGPL-3.0, Philip Paquette, Steven Bocco)
@@ -44,8 +62,31 @@ function App() {
   }, []);
 
   function handleTerritoryClick(id) {
-    const unit = units.find(u => u.id === id);
-    setSelectedUnit(unit || null);
+    if (selectedUnit) {
+      if (selectedUnit.id === id) {
+        setSelectedUnit(null);
+        return;
+      }
+      const moves = getValidMoves(selectedUnit);
+      const directMove = moves.includes(id);
+      const coastMove = !directMove && moves.find(m => m.startsWith(id + '-'));
+      if (directMove || coastMove) {
+        const destId = coastMove || id;
+        const dest = territories[destId];
+        if (dest && dest.unitCoord) {
+          const { x, y } = dest.unitCoord;
+          setUnits(prev => {
+            if (prev.find(u => u.id === destId)) return prev; // occupied
+            return prev.map(u => u.id === selectedUnit.id ? { ...u, id: destId, x, y } : u);
+          });
+        }
+        setSelectedUnit(null);
+      } else {
+        setSelectedUnit(units.find(u => u.id === id) || null);
+      }
+    } else {
+      setSelectedUnit(units.find(u => u.id === id) || null);
+    }
   }
 
   return (
@@ -63,12 +104,17 @@ function App() {
         {title}
       </h1>
       <p style={{ margin: '0 0 1rem', color: '#555', minHeight: '1.5em' }}>
-        {hovering ? `Hovering: ${hovering}` : selectedUnit ? `Selected: ${selectedUnit.power} ${selectedUnit.type} at ${selectedUnit.id.toUpperCase()}` : 'Click a unit'}
+        {hovering
+          ? `Hovering: ${hovering}`
+          : selectedUnit
+          ? `${selectedUnit.power} ${selectedUnit.type} @ ${selectedUnit.id.toUpperCase()} — click a highlighted territory to move`
+          : 'Click a unit to select it'}
       </p>
       <div style={{ width: '100%', maxWidth: '960px' }}>
         <DipMap
           units={units}
           selectedUnit={selectedUnit}
+          validMoves={getDisplayMoves(selectedUnit, units)}
           onTerritoryClick={handleTerritoryClick}
           onTerritoryHover={setHovering}
         />

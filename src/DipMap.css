@@ -67,6 +67,14 @@
   pointer-events: none;
 }
 
+/* Valid move highlight */
+path.valid-move,
+g.valid-move path {
+  fill: rgba(255, 215, 0, 0.5);
+  stroke: #e8a000;
+  stroke-width: 2;
+}
+
 /* Hover highlight */
 path:hover {
   opacity: 0.75;
