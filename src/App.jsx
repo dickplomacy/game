@@ -79,11 +79,13 @@ function renderOrderText(u, orders, units) {
   if (order.type === 'support') {
     const tgt = units.find(t => t.id === order.target);
     if (!tgt) return `${u.type} ${displayId(u.id)} S ?`;
-    const tgtOrder = orders[order.target];
-    if (tgtOrder && tgtOrder.type === 'move') {
-      return `${u.type} ${displayId(u.id)} S ${tgt.type} ${displayId(tgt.id)} → ${displayId(tgtOrder.dest)}`;
-    }
+    if (order.dest) return `${u.type} ${displayId(u.id)} S ${tgt.type} ${displayId(tgt.id)} → ${displayId(order.dest)}`;
     return `${u.type} ${displayId(u.id)} S ${tgt.type} ${displayId(tgt.id)} H`;
+  }
+  if (order.type === 'convoy') {
+    const army = units.find(t => t.id === order.army);
+    if (!army) return `${u.type} ${displayId(u.id)} C ?`;
+    return `${u.type} ${displayId(u.id)} C ${army.type} ${displayId(army.id)} → ${displayId(order.dest)}`;
   }
   return `${u.type} ${displayId(u.id)}`;
 }
@@ -93,8 +95,10 @@ function App() {
   // setUnits will be used when resolver updates unit positions
   const [units, setUnits] = useState(STARTING_UNITS); // eslint-disable-line no-unused-vars
   const [selectedUnit, setSelectedUnit] = useState(null);
-  const [orders, setOrders] = useState({}); // { unitId: { type: 'move'|'support', dest?, target? } }
-  const [mode, setMode] = useState('move'); // 'move' | 'support'
+  const [orders, setOrders] = useState({}); // { unitId: { type: 'move'|'support'|'convoy', dest?, target?, army? } }
+  const [mode, setMode] = useState('move'); // 'move' | 'support' | 'convoy'
+  const [supportTarget, setSupportTarget] = useState(null); // unit being supported (step 2 of support)
+  const [convoyArmy, setConvoyArmy] = useState(null); // army unit selected in convoy step 2
 
   useEffect(() => {
     getDoc(doc(db, "config", "ui")).then((snap) => {
@@ -107,22 +111,53 @@ function App() {
     return units.find(u => u.id === id || u.id.startsWith(id + '-')) || null;
   }
 
+  function resetMode() {
+    setMode('move');
+    setSelectedUnit(null);
+    setSupportTarget(null);
+    setConvoyArmy(null);
+  }
+
   function handleTerritoryClick(id) {
     if (mode === 'support') {
       if (!selectedUnit) {
-        // First click in support mode: select the supporter
+        // Step 1: pick the supporting unit
         setSelectedUnit(findUnit(id));
-      } else {
+      } else if (!supportTarget) {
+        // Step 2: pick the unit to support
         const isSelected = selectedUnit.id === id || selectedUnit.id.startsWith(id + '-');
         if (isSelected) { setSelectedUnit(null); return; }
         const targetUnit = findUnit(id);
-        if (targetUnit) {
-          setOrders(prev => ({ ...prev, [selectedUnit.id]: { type: 'support', target: targetUnit.id } }));
-          setSelectedUnit(null);
-          setMode('move');
-        } else {
-          // No unit there — treat as new supporter selection
-          setSelectedUnit(null);
+        if (targetUnit) setSupportTarget(targetUnit);
+      } else {
+        // Step 3: destination must be in the supporter's valid moves
+        const validDests = getDisplayMoves(selectedUnit);
+        if (!validDests.has(id)) return; // not a legal support destination
+        const targetBase = supportTarget.id.includes('-') ? supportTarget.id.split('-')[0] : supportTarget.id;
+        const isHold = id === targetBase;
+        const dest = isHold ? null : id;
+        setOrders(prev => ({ ...prev, [selectedUnit.id]: { type: 'support', target: supportTarget.id, dest } }));
+        resetMode();
+      }
+      return;
+    }
+
+    if (mode === 'convoy') {
+      if (!selectedUnit) {
+        // Step 1: pick a fleet
+        const unit = findUnit(id);
+        if (unit && unit.type === 'F') setSelectedUnit(unit);
+      } else if (!convoyArmy) {
+        // Step 2: pick an army
+        const isSelected = selectedUnit.id === id || selectedUnit.id.startsWith(id + '-');
+        if (isSelected) { setSelectedUnit(null); return; }
+        const unit = findUnit(id);
+        if (unit && unit.type === 'A') setConvoyArmy(unit);
+      } else {
+        // Step 3: pick a destination (army type restriction applies)
+        if (canOrderTo('A', id)) {
+          setOrders(prev => ({ ...prev, [selectedUnit.id]: { type: 'convoy', army: convoyArmy.id, dest: id } }));
+          resetMode();
         }
       }
       return;
@@ -151,12 +186,25 @@ function App() {
     // TODO: implement resolution
   }
 
-  // In support mode with a supporter selected, highlight occupied territories
+  function unitPositions(filterFn) {
+    return new Set(units.filter(filterFn).map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
+  }
+
   function getValidMovesForMode() {
-    if (mode === 'support' && selectedUnit) {
-      return new Set(units
-        .filter(u => u.id !== selectedUnit.id)
-        .map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
+    if (mode === 'support') {
+      if (!selectedUnit) return unitPositions(() => true);
+      if (!supportTarget) return unitPositions(u => u.id !== selectedUnit.id);
+      // Step 3: destination must be somewhere the supporter can legally move to
+      return getDisplayMoves(selectedUnit);
+    }
+    if (mode === 'convoy') {
+      if (!selectedUnit) return unitPositions(u => u.type === 'F');
+      if (!convoyArmy) return unitPositions(u => u.type === 'A');
+      // Step 3: any non-water territory
+      return new Set(Object.keys(territories).filter(id => {
+        const t = territories[id];
+        return !id.includes('-') && t.type !== 'water' && t.type !== 'impassable';
+      }));
     }
     return getDisplayMoves(selectedUnit);
   }
@@ -164,15 +212,21 @@ function App() {
   function hintText() {
     if (mode === 'support') {
       if (!selectedUnit) return 'SUPPORT: click the unit giving support';
-      return `SUPPORT: ${selectedUnit.type} ${displayId(selectedUnit.id)} — click the unit to support`;
+      if (!supportTarget) return `SUPPORT: ${selectedUnit.type} ${displayId(selectedUnit.id)} — click the unit to support`;
+      return `SUPPORT: ${selectedUnit.type} ${displayId(selectedUnit.id)} S ${supportTarget.type} ${displayId(supportTarget.id)} — click a reachable destination, or click ${displayId(supportTarget.id.includes('-') ? supportTarget.id.split('-')[0] : supportTarget.id)} again to support hold`;
+    }
+    if (mode === 'convoy') {
+      if (!selectedUnit) return 'CONVOY: click a fleet to do the convoying';
+      if (!convoyArmy) return `CONVOY: F ${displayId(selectedUnit.id)} — click the army to convoy`;
+      return `CONVOY: F ${displayId(selectedUnit.id)} C A ${displayId(convoyArmy.id)} — click the destination`;
     }
     if (selectedUnit) return `${selectedUnit.power} ${selectedUnit.type} ${displayId(selectedUnit.id)} — click a territory to move`;
-    return 'Click a unit to select it, or use Support button';
+    return 'Click a unit to select it, or use Support / Convoy';
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', fontFamily: 'system-ui, sans-serif', background: '#fff' }}>
-      <h1 style={{ textAlign: 'center', margin: '0.5rem 0 0', fontSize: '2rem', flexShrink: 0 }}>{title}</h1>
+      <h1 style={{ textAlign: 'center', margin: '0.5rem 0 0', fontSize: '2rem', flexShrink: 0, userSelect: 'none' }}>{title}</h1>
       <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: '0.75rem', padding: '0.5rem 0.75rem' }}>
 
         {/* Orders panel */}
@@ -185,10 +239,16 @@ function App() {
               ▶ Resolve
             </button>
             <button
-              onClick={() => { setMode(m => m === 'support' ? 'move' : 'support'); setSelectedUnit(null); }}
+              onClick={() => { setMode(m => m === 'support' ? 'move' : 'support'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
               style={{ flex: 1, padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'support' ? '#b8860b' : '#444', color: '#fff', border: mode === 'support' ? '2px solid #ffd700' : '2px solid transparent', borderRadius: 4, fontSize: 12 }}
             >
               S Support
+            </button>
+            <button
+              onClick={() => { setMode(m => m === 'convoy' ? 'move' : 'convoy'); setSelectedUnit(null); setConvoyArmy(null); }}
+              style={{ flex: 1, padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'convoy' ? '#1a5c8a' : '#444', color: '#fff', border: mode === 'convoy' ? '2px solid #5bc8ff' : '2px solid transparent', borderRadius: 4, fontSize: 12 }}
+            >
+              C Convoy
             </button>
           </div>
           <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -223,7 +283,7 @@ function App() {
 
         {/* Map */}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: 12, color: mode === 'support' ? '#b8860b' : '#666', marginBottom: 4, minHeight: '1.4em', fontWeight: mode === 'support' ? 600 : 400 }}>
+          <div style={{ fontSize: 12, color: mode === 'support' ? '#b8860b' : mode === 'convoy' ? '#1a5c8a' : '#666', marginBottom: 4, minHeight: '1.4em', fontWeight: mode !== 'move' ? 600 : 400 }}>
             {hintText()}
           </div>
           <div style={{ flex: 1, minHeight: 0 }}>
