@@ -62,6 +62,6 @@
 }
 
 /* Hover highlight */
-path:hover, g:hover > path {
+path:hover {
   opacity: 0.75;
 }
