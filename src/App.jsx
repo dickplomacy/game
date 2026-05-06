@@ -7,13 +7,24 @@ import territories from "./territories.json";
 function getValidMoves(unit) {
   const t = territories[unit.id];
   if (!t) return [];
-  return (unit.type === 'A' ? t.moves.army : t.moves.fleet) || [];
+  const moves = (unit.type === 'A' ? t.moves.army : t.moves.fleet) || [];
+  // Coast variant with no moves — fall back to base territory
+  if (moves.length === 0 && unit.id.includes('-')) {
+    const base = territories[unit.id.split('-')[0]];
+    if (base) return (unit.type === 'A' ? base.moves.army : base.moves.fleet) || [];
+  }
+  return moves;
 }
 
 function getDisplayMoves(unit, allUnits) {
   if (!unit) return new Set();
   const moves = getValidMoves(unit);
-  const occupiedIds = new Set(allUnits.map(u => u.id));
+  // Build occupied set including base IDs for coast variant units
+  const occupiedIds = new Set();
+  allUnits.forEach(u => {
+    occupiedIds.add(u.id);
+    if (u.id.includes('-')) occupiedIds.add(u.id.split('-')[0]);
+  });
   return new Set(
     moves
       .filter(id => !occupiedIds.has(id))
@@ -61,9 +72,15 @@ function App() {
     });
   }, []);
 
+  // Find a unit at territory `id`, also matching coast variants (e.g. 'stp' finds 'stp-sc')
+  function findUnit(id) {
+    return units.find(u => u.id === id || u.id.startsWith(id + '-')) || null;
+  }
+
   function handleTerritoryClick(id) {
     if (selectedUnit) {
-      if (selectedUnit.id === id) {
+      const isSelected = selectedUnit.id === id || selectedUnit.id.startsWith(id + '-');
+      if (isSelected) {
         setSelectedUnit(null);
         return;
       }
@@ -82,10 +99,10 @@ function App() {
         }
         setSelectedUnit(null);
       } else {
-        setSelectedUnit(units.find(u => u.id === id) || null);
+        setSelectedUnit(findUnit(id));
       }
     } else {
-      setSelectedUnit(units.find(u => u.id === id) || null);
+      setSelectedUnit(findUnit(id));
     }
   }
 
