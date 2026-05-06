@@ -10,10 +10,10 @@ const WATER = new Set([
 const IMPASSABLE = new Set(['swi']);
 
 function getClass(id, owners) {
+  if (id.includes('-')) return 'coast-variant';
   if (WATER.has(id)) return 'water';
   if (IMPASSABLE.has(id)) return 'impassable';
-  const base = id.includes('-') ? id.split('-')[0] : id;
-  const owner = owners && owners[base];
+  const owner = owners && owners[id];
   return owner ? owner.toLowerCase() : 'neutral';
 }
 

@@ -61,6 +61,12 @@
   stroke-width: 1;
 }
 
+.coast-variant {
+  fill: transparent;
+  stroke: none;
+  pointer-events: none;
+}
+
 /* Hover highlight */
 path:hover {
   opacity: 0.75;
