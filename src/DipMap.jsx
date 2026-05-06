@@ -27,12 +27,12 @@ const POWER_COLORS = {
   TURKEY: '#b9a61c',
 };
 
-function UnitSymbol({ unit, selected, onClick }) {
+function UnitSymbol({ unit, selected }) {
   const { x, y, type, power } = unit;
   const color = POWER_COLORS[power] || '#999';
   const r = 13;
   return (
-    <g onClick={(e) => { e.stopPropagation(); onClick && onClick(unit); }} style={{ cursor: 'pointer' }}>
+    <g style={{ pointerEvents: 'none' }}>
       {type === 'A'
         ? <rect x={x - r} y={y - r} width={r * 2} height={r * 2} rx={3}
             fill={color} stroke={selected ? '#ffcc00' : '#222'} strokeWidth={selected ? 2.5 : 1.5} />
@@ -45,7 +45,7 @@ function UnitSymbol({ unit, selected, onClick }) {
   );
 }
 
-export default function DipMap({ territoryOwners = {}, units = [], selectedUnit = null, onTerritoryClick, onTerritoryHover, onUnitClick }) {
+export default function DipMap({ territoryOwners = {}, units = [], selectedUnit = null, onTerritoryClick, onTerritoryHover }) {
   return (
     <svg
       viewBox="0 0 1835 1360"
@@ -150,7 +150,6 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
             key={unit.id}
             unit={unit}
             selected={selectedUnit !== null && selectedUnit.id === unit.id}
-            onClick={onUnitClick}
           />
         ))}
       </g>

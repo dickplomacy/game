@@ -43,6 +43,11 @@ function App() {
     });
   }, []);
 
+  function handleTerritoryClick(id) {
+    const unit = units.find(u => u.id === id);
+    setSelectedUnit(unit || null);
+  }
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -64,7 +69,7 @@ function App() {
         <DipMap
           units={units}
           selectedUnit={selectedUnit}
-          onUnitClick={setSelectedUnit}
+          onTerritoryClick={handleTerritoryClick}
           onTerritoryHover={setHovering}
         />
       </div>
