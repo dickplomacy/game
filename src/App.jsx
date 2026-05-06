@@ -69,6 +69,9 @@ const STARTING_UNITS = [
   { id: 'con', type: 'A', power: 'TURKEY',   x: 1145.5, y: 1137.0 },
   { id: 'smy', type: 'A', power: 'TURKEY',   x: 1253.5, y: 1210.0 },
   { id: 'ank', type: 'F', power: 'TURKEY',   x: 1301.5, y: 1110.0 },
+  // test units
+  { id: 'yor', type: 'A', power: 'ENGLAND',  x: 492.5,  y: 616.0  },
+  { id: 'nth', type: 'F', power: 'ENGLAND',  x: 553.5,  y: 560.0  },
 ];
 
 // Render an order as a short notation string
@@ -96,7 +99,7 @@ function App() {
   const [units, setUnits] = useState(STARTING_UNITS); // eslint-disable-line no-unused-vars
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [orders, setOrders] = useState({}); // { unitId: { type: 'move'|'support'|'convoy', dest?, target?, army? } }
-  const [mode, setMode] = useState('move'); // 'move' | 'support' | 'convoy'
+  const [mode, setMode] = useState(null); // null | 'move' | 'support' | 'convoy'
   const [supportTarget, setSupportTarget] = useState(null); // unit being supported (step 2 of support)
   const [convoyArmy, setConvoyArmy] = useState(null); // army unit selected in convoy step 2
 
@@ -112,7 +115,7 @@ function App() {
   }
 
   function resetMode() {
-    setMode('move');
+    setMode(null);
     setSelectedUnit(null);
     setSupportTarget(null);
     setConvoyArmy(null);
@@ -144,9 +147,9 @@ function App() {
 
     if (mode === 'convoy') {
       if (!selectedUnit) {
-        // Step 1: pick a fleet
+        // Step 1: pick a fleet in a water territory
         const unit = findUnit(id);
-        if (unit && unit.type === 'F') setSelectedUnit(unit);
+        if (unit && unit.type === 'F' && territories[unit.id] && territories[unit.id].type === 'water') setSelectedUnit(unit);
       } else if (!convoyArmy) {
         // Step 2: pick an army
         const isSelected = selectedUnit.id === id || selectedUnit.id.startsWith(id + '-');
@@ -164,12 +167,13 @@ function App() {
     }
 
     // mode === 'move'
+    if (mode !== 'move') return;
     if (selectedUnit) {
       const isSelected = selectedUnit.id === id || selectedUnit.id.startsWith(id + '-');
       if (isSelected) { setSelectedUnit(null); return; }
       if (canOrderTo(selectedUnit.type, id)) {
         setOrders(prev => ({ ...prev, [selectedUnit.id]: { type: 'move', dest: id } }));
-        setSelectedUnit(null);
+        resetMode();
       } else {
         setSelectedUnit(findUnit(id));
       }
@@ -198,7 +202,7 @@ function App() {
       return getDisplayMoves(selectedUnit);
     }
     if (mode === 'convoy') {
-      if (!selectedUnit) return unitPositions(u => u.type === 'F');
+      if (!selectedUnit) return unitPositions(u => u.type === 'F' && territories[u.id] && territories[u.id].type === 'water');
       if (!convoyArmy) return unitPositions(u => u.type === 'A');
       // Step 3: any non-water territory
       return new Set(Object.keys(territories).filter(id => {
@@ -206,6 +210,8 @@ function App() {
         return !id.includes('-') && t.type !== 'water' && t.type !== 'impassable';
       }));
     }
+    // move mode
+    if (!selectedUnit) return mode === 'move' ? unitPositions(() => true) : new Set();
     return getDisplayMoves(selectedUnit);
   }
 
@@ -221,7 +227,8 @@ function App() {
       return `CONVOY: F ${displayId(selectedUnit.id)} C A ${displayId(convoyArmy.id)} — click the destination`;
     }
     if (selectedUnit) return `${selectedUnit.power} ${selectedUnit.type} ${displayId(selectedUnit.id)} — click a territory to move`;
-    return 'Click a unit to select it, or use Support / Convoy';
+    if (mode === 'move') return 'MOVE: click a unit to select it';
+    return 'Observer mode — select an order type to begin';
   }
 
   return (
@@ -231,22 +238,28 @@ function App() {
 
         {/* Orders panel */}
         <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            onClick={resolveOrders}
+            style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
+          >
+            ▶ Resolve Orders
+          </button>
           <div style={{ display: 'flex', gap: 5 }}>
             <button
-              onClick={resolveOrders}
-              style={{ flex: 1, padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
+              onClick={() => { setMode(m => m === 'move' ? null : 'move'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+              style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'move' ? '#2a6e2a' : '#444', color: '#fff', border: mode === 'move' ? '2px solid #7fef7f' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
             >
-              ▶ Resolve
+              M Move
             </button>
             <button
-              onClick={() => { setMode(m => m === 'support' ? 'move' : 'support'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
-              style={{ flex: 1, padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'support' ? '#b8860b' : '#444', color: '#fff', border: mode === 'support' ? '2px solid #ffd700' : '2px solid transparent', borderRadius: 4, fontSize: 12 }}
+              onClick={() => { setMode(m => m === 'support' ? null : 'support'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+              style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'support' ? '#b8860b' : '#444', color: '#fff', border: mode === 'support' ? '2px solid #ffd700' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
             >
               S Support
             </button>
             <button
-              onClick={() => { setMode(m => m === 'convoy' ? 'move' : 'convoy'); setSelectedUnit(null); setConvoyArmy(null); }}
-              style={{ flex: 1, padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'convoy' ? '#1a5c8a' : '#444', color: '#fff', border: mode === 'convoy' ? '2px solid #5bc8ff' : '2px solid transparent', borderRadius: 4, fontSize: 12 }}
+              onClick={() => { setMode(m => m === 'convoy' ? null : 'convoy'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+              style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'convoy' ? '#1a5c8a' : '#444', color: '#fff', border: mode === 'convoy' ? '2px solid #5bc8ff' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
             >
               C Convoy
             </button>
@@ -283,7 +296,7 @@ function App() {
 
         {/* Map */}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: 12, color: mode === 'support' ? '#b8860b' : mode === 'convoy' ? '#1a5c8a' : '#666', marginBottom: 4, minHeight: '1.4em', fontWeight: mode !== 'move' ? 600 : 400 }}>
+          <div style={{ fontSize: 12, color: mode === 'support' ? '#b8860b' : mode === 'convoy' ? '#1a5c8a' : mode === 'move' ? '#2a6e2a' : '#999', marginBottom: 4, minHeight: '1.4em', fontWeight: mode && mode !== 'move' ? 600 : 400 }}>
             {hintText()}
           </div>
           <div style={{ flex: 1, minHeight: 0 }}>
