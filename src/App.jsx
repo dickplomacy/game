@@ -117,9 +117,9 @@ function App() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', background: '#fff' }}>
-      <h1 style={{ textAlign: 'center', margin: '0.5rem 0 0', fontSize: '2rem' }}>{title}</h1>
-      <div style={{ display: 'flex', flex: 1, gap: '0.75rem', padding: '0.5rem 0.75rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', fontFamily: 'system-ui, sans-serif', background: '#fff' }}>
+      <h1 style={{ textAlign: 'center', margin: '0.5rem 0 0', fontSize: '2rem', flexShrink: 0 }}>{title}</h1>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: '0.75rem', padding: '0.5rem 0.75rem' }}>
 
         {/* Orders panel */}
         <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -158,19 +158,21 @@ function App() {
         </div>
 
         {/* Map */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ fontSize: 12, color: '#666', marginBottom: 4, minHeight: '1.4em' }}>
             {selectedUnit
               ? `${selectedUnit.power} ${selectedUnit.type} ${displayId(selectedUnit.id)} — click any territory to order`
               : 'Click a unit to select it'}
           </div>
-          <DipMap
-            units={units}
-            selectedUnit={selectedUnit}
-            validMoves={getDisplayMoves(selectedUnit)}
-            onTerritoryClick={handleTerritoryClick}
-            onTerritoryHover={() => {}}
-          />
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <DipMap
+              units={units}
+              selectedUnit={selectedUnit}
+              validMoves={getDisplayMoves(selectedUnit)}
+              onTerritoryClick={handleTerritoryClick}
+              onTerritoryHover={() => {}}
+            />
+          </div>
         </div>
 
       </div>

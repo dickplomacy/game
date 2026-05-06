@@ -44,7 +44,7 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
   return (
     <svg
       viewBox="0 0 1835 1360"
-      style={{ width: '100%', height: 'auto', display: 'block' }}
+      style={{ width: '100%', height: '100%', maxWidth: '100%', display: 'block' }}
       xmlns="http://www.w3.org/2000/svg"
     >
       <g transform="translate(-195 -170)">
