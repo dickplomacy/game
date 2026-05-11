@@ -20,6 +20,16 @@ function canOrderTo(unitType, destId) {
   return true;
 }
 
+// For a fleet move order, resolve the specific coast variant dest if unambiguous.
+// e.g. fleet at 'bot' moving to 'stp' → 'stp-sc' (only coast in bot's move list)
+//      fleet at 'mid' moving to 'spa' → 'spa' (ambiguous: both spa-nc and spa-sc reachable)
+function resolveFleetDest(fleetId, destBaseId) {
+  const fleetMoves = territories[fleetId]?.moves.fleet || [];
+  const coastsInMoves = fleetMoves.filter(m => m.startsWith(destBaseId + '-'));
+  if (coastsInMoves.length === 1) return coastsInMoves[0]; // unambiguous — auto-resolve
+  return destBaseId; // ambiguous or no coast variant — keep base
+}
+
 // Adjacency-based highlighting (visual guide only — orders are not restricted to these)
 function getDisplayMoves(unit) {
   if (!unit) return new Set();
@@ -30,7 +40,13 @@ function getDisplayMoves(unit) {
     const base = territories[unit.id.split('-')[0]];
     if (base) moves = (unit.type === 'A' ? base.moves.army : base.moves.fleet) || [];
   }
-  return new Set(moves.map(id => id.includes('-') ? id.split('-')[0] : id));
+  // Include both the coast variant id and its base id so the SVG territory gets highlighted
+  const result = new Set();
+  moves.forEach(id => {
+    result.add(id);
+    if (id.includes('-')) result.add(id.split('-')[0]);
+  });
+  return result;
 }
 
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'];
@@ -103,6 +119,7 @@ function App() {
   const [mode, setMode] = useState(null); // null | 'move' | 'support' | 'convoy'
   const [supportTarget, setSupportTarget] = useState(null); // unit being supported (step 2 of support)
   const [convoyArmy, setConvoyArmy] = useState(null); // army unit selected in convoy step 2
+  const [coastChoice, setCoastChoice] = useState(null); // { unitId, coasts: [id, ...] } — pending coast selection
 
   useEffect(() => {
     getDoc(doc(db, "config", "ui")).then((snap) => {
@@ -120,6 +137,7 @@ function App() {
     setSelectedUnit(null);
     setSupportTarget(null);
     setConvoyArmy(null);
+    setCoastChoice(null);
   }
 
   function handleTerritoryClick(id) {
@@ -173,7 +191,22 @@ function App() {
       const isSelected = selectedUnit.id === id || selectedUnit.id.startsWith(id + '-');
       if (isSelected) { setSelectedUnit(null); return; }
       if (canOrderTo(selectedUnit.type, id)) {
-        setOrders(prev => ({ ...prev, [selectedUnit.id]: { type: 'move', dest: id } }));
+        // For fleets, additionally enforce coast-aware adjacency from the fleet's move list
+        if (selectedUnit.type === 'F') {
+          const fleetMoves = territories[selectedUnit.id]?.moves.fleet || [];
+          const baseDestId = id.includes('-') ? id.split('-')[0] : id;
+          const canReach = fleetMoves.some(m => m === id || (m.includes('-') ? m.split('-')[0] : m) === baseDestId);
+          if (!canReach) { setSelectedUnit(null); return; }
+          // Check if ambiguous (multiple coasts reachable)
+          const reachableCoasts = fleetMoves.filter(m => m.startsWith(baseDestId + '-'));
+          if (reachableCoasts.length > 1) {
+            setCoastChoice({ unitId: selectedUnit.id, coasts: reachableCoasts });
+            setSelectedUnit(null);
+            return;
+          }
+        }
+        const dest = selectedUnit.type === 'F' ? resolveFleetDest(selectedUnit.id, id) : id;
+        setOrders(prev => ({ ...prev, [selectedUnit.id]: { type: 'move', dest } }));
         resetMode();
       } else {
         setSelectedUnit(findUnit(id));
@@ -302,7 +335,7 @@ function App() {
           <div style={{ fontSize: 12, color: mode === 'support' ? '#b8860b' : mode === 'convoy' ? '#1a5c8a' : mode === 'move' ? '#2a6e2a' : '#999', marginBottom: 4, minHeight: '1.4em', fontWeight: mode && mode !== 'move' ? 600 : 400 }}>
             {hintText()}
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
             <DipMap
               units={units}
               selectedUnit={selectedUnit}
@@ -310,6 +343,32 @@ function App() {
               onTerritoryClick={handleTerritoryClick}
               onTerritoryHover={() => {}}
             />
+            {coastChoice && (
+              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', border: '2px solid #333', borderRadius: 6, padding: '12px 16px', boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 10, textAlign: 'center' }}>
+                <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Choose coast</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {coastChoice.coasts.map(coast => (
+                    <button
+                      key={coast}
+                      onClick={() => {
+                        setOrders(prev => ({ ...prev, [coastChoice.unitId]: { type: 'move', dest: coast } }));
+                        setCoastChoice(null);
+                        resetMode();
+                      }}
+                      style={{ padding: '6px 12px', cursor: 'pointer', fontWeight: 600, background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12 }}
+                    >
+                      {displayId(coast)}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setCoastChoice(null)}
+                    style={{ padding: '6px 10px', cursor: 'pointer', background: '#eee', border: '1px solid #ccc', borderRadius: 4, fontSize: 12, color: '#555' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
