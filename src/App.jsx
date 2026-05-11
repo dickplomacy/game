@@ -144,7 +144,7 @@ function ownersFromUnits(prevOwners, newUnits) {
   return next;
 }
 
-function App() {
+function App({ gameData = null, role = null, gameCode = null, playerToken = null }) {
   const [title, setTitle] = useState("loading...");
   // setUnits will be used when resolver updates unit positions
   const [units, setUnits] = useState(STARTING_UNITS);
@@ -164,6 +164,13 @@ function App() {
       else setTitle("dickplomacy");
     });
   }, []);
+
+  // Sync units and owners from Firestore whenever the server state changes
+  useEffect(() => {
+    if (!gameData) return;
+    if (gameData.units) setUnits(gameData.units);
+    if (gameData.owners) setOwners(gameData.owners);
+  }, [gameData]);
 
   useEffect(() => {
     function onKey(e) {

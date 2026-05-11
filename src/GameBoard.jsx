@@ -1,21 +1,28 @@
 import { useParams, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { getGame, getRoleForToken } from './gameService';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from './firebase';
+import { getRoleForToken } from './gameService';
 import App from './App.jsx';
 
 export default function GameBoard() {
   const { gameCode, playerToken } = useParams();
   const [status, setStatus] = useState('loading'); // 'loading' | 'invalid' | 'ready'
   const [role, setRole] = useState(null);
+  const [gameData, setGameData] = useState(null);
 
   useEffect(() => {
-    getGame(gameCode).then(game => {
-      if (!game) { setStatus('invalid'); return; }
-      const r = getRoleForToken(game, playerToken);
+    const ref = doc(db, 'games', gameCode.toUpperCase());
+    const unsub = onSnapshot(ref, snap => {
+      if (!snap.exists()) { setStatus('invalid'); return; }
+      const data = snap.data();
+      const r = getRoleForToken(data, playerToken);
       if (!r) { setStatus('invalid'); return; }
       setRole(r);
+      setGameData(data);
       setStatus('ready');
-    });
+    }, () => setStatus('invalid'));
+    return unsub;
   }, [gameCode, playerToken]);
 
   if (status === 'loading') {
@@ -36,7 +43,5 @@ export default function GameBoard() {
     );
   }
 
-  // Phase 3 will replace this with the live Firestore-connected board.
-  // For now, render the local App with the role shown in the title area.
-  return <App role={role} gameCode={gameCode} playerToken={playerToken} />;
+  return <App gameData={gameData} role={role} gameCode={gameCode} playerToken={playerToken} />;
 }
