@@ -21,6 +21,26 @@ const POWER_COLORS = {
   TURKEY: '#b9a61c',
 };
 
+const POWER_RGBA = {
+  AUSTRIA: [196, 143, 133],
+  ENGLAND: [148,   0, 211],
+  FRANCE:  [ 65, 105, 225],
+  GERMANY: [160, 138, 117],
+  ITALY:   [ 34, 139,  34],
+  RUSSIA:  [117, 125, 145],
+  TURKEY:  [185, 166,  28],
+};
+
+function territoryFill(t, unitsByTerritory) {
+  if (t.id.includes('-') || t.type === 'water' || t.type === 'impassable') return null;
+  const unit = unitsByTerritory[t.id];
+  if (!unit) return null;
+  const rgb = POWER_RGBA[unit.power];
+  if (!rgb) return null;
+  const alpha = t.supplyCenter ? 0.5 : 0.25;
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+}
+
 const SC_TERRITORIES = Object.values(territories).filter(t => t.supplyCenter && t.unitCoord && !t.id.includes('-'));
 
 function starPoints(cx, cy, outerR = 7, innerR = 3) {
@@ -61,6 +81,11 @@ function UnitSymbol({ unit, selected }) {
 
 export default function DipMap({ territoryOwners = {}, units = [], selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover }) {
   const tList = Object.values(territories);
+  const unitsByTerritory = {};
+  units.forEach(u => {
+    const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
+    unitsByTerritory[base] = u;
+  });
   return (
     <svg
       viewBox="0 0 1835 1360"
@@ -71,11 +96,12 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
         {tList.map(t => {
           if (!t.svg) return null;
           const cls = getClass(t, territoryOwners) + (validMoves.has(t.id) ? ' valid-move' : '');
+          const fill = territoryFill(t, unitsByTerritory);
           const handlers = {
             onClick: () => onTerritoryClick && onTerritoryClick(t.id),
             onMouseOver: () => onTerritoryHover && onTerritoryHover(t.id),
             onMouseOut: () => onTerritoryHover && onTerritoryHover(null),
-            style: { cursor: 'pointer' },
+            style: fill ? { cursor: 'pointer', fill } : { cursor: 'pointer' },
           };
           if (Array.isArray(t.svg)) {
             return (
