@@ -3,6 +3,7 @@ import { db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
+import { resolve } from "./resolver";
 
 // Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
 function displayId(id) {
@@ -187,7 +188,9 @@ function App() {
   }
 
   function resolveOrders() {
-    // TODO: implement resolution
+    setUnits(prev => resolve(prev, orders));
+    setOrders({});
+    resetMode();
   }
 
   function unitPositions(filterFn) {
