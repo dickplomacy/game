@@ -21,12 +21,22 @@ const POWER_COLORS = {
   TURKEY: '#b9a61c',
 };
 
-const SC_TERRITORIES = Object.values(territories).filter(t => t.supplyCenter && t.unitCoord);
+const SC_TERRITORIES = Object.values(territories).filter(t => t.supplyCenter && t.unitCoord && !t.id.includes('-'));
 
-function SupplyCenterDot({ t }) {
+function starPoints(cx, cy, outerR = 7, innerR = 3) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const angle = (i * Math.PI) / 5 - Math.PI / 2;
+    const r = i % 2 === 0 ? outerR : innerR;
+    pts.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
+  }
+  return pts.join(' ');
+}
+
+function SupplyCenterStar({ t }) {
   const { x, y } = t.unitCoord;
   return (
-    <circle cx={x} cy={y} r={5} fill="white" stroke="#333" strokeWidth={1.5}
+    <polygon points={starPoints(x, y)} fill="gold" stroke="#333" strokeWidth={1}
       style={{ pointerEvents: 'none' }} />
   );
 }
@@ -78,7 +88,10 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
         })}
       </g>
       <g>
-        {SC_TERRITORIES.map(t => <SupplyCenterDot key={t.id} t={t} />)}
+        {(() => {
+          const occupied = new Set(units.map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
+          return SC_TERRITORIES.filter(t => !occupied.has(t.id)).map(t => <SupplyCenterStar key={t.id} t={t} />);
+        })()}
       </g>
       <g>
         {units.map(unit => (
