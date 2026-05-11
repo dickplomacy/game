@@ -21,6 +21,16 @@ const POWER_COLORS = {
   TURKEY: '#b9a61c',
 };
 
+const SC_TERRITORIES = Object.values(territories).filter(t => t.supplyCenter && t.unitCoord);
+
+function SupplyCenterDot({ t }) {
+  const { x, y } = t.unitCoord;
+  return (
+    <circle cx={x} cy={y} r={5} fill="white" stroke="#333" strokeWidth={1.5}
+      style={{ pointerEvents: 'none' }} />
+  );
+}
+
 function UnitSymbol({ unit, selected }) {
   const { x, y, type, power } = unit;
   const color = POWER_COLORS[power] || '#999';
@@ -66,6 +76,9 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
           }
           return <path key={t.id} id={t.id} className={cls} d={t.svg} {...handlers} />;
         })}
+      </g>
+      <g>
+        {SC_TERRITORIES.map(t => <SupplyCenterDot key={t.id} t={t} />)}
       </g>
       <g>
         {units.map(unit => (
