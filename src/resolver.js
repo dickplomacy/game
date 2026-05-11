@@ -122,7 +122,7 @@ function hasConvoyChain(armyId, armySrcBase, destOrigId, units, orders) {
  * @returns {{ units: object[], dislodged: object[] }}
  *   units     — new positions after successful moves (dislodged units removed)
  *   dislodged — array of { unit, retreatOptions: string[] } for the retreat phase
- *               retreatOptions is the set of base territory ids the unit may retreat to
+ *               retreatOptions contains full territory ids (coast-specific for fleets, e.g. 'bul-ec')
  *               (empty means the unit must disband)
  */
 export function resolve(units, orders) {
@@ -292,14 +292,12 @@ export function resolve(units, orders) {
     const adjList = u.type === 'A' ? (entry?.moves.army ?? []) : (entry?.moves.fleet ?? []);
 
     const retreatOptions = adjList
-      .map(m => baseId(m))
-      .filter((tid, i, arr) => arr.indexOf(tid) === i) // dedupe
-      .filter(tid => {
+      .filter((mid, i, arr) => arr.indexOf(mid) === i) // dedupe by full id (preserves coast variants for fleets)
+      .filter(mid => {
+        const tid = baseId(mid);
         // Occupied and staying → not a valid retreat
         const occ = occupied.get(tid);
         if (occ && !succeeded.has(occ)) return false;
-        // If the occupant is vacating (succeeded), the territory is becoming free,
-        // but we must still apply the attacker-origin and standoff checks.
 
         if (standoffTerritories.has(tid)) return false;
         if (tid === attackerSrcBase) return false;

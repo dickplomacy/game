@@ -322,6 +322,40 @@ describe('retreat', () => {
     );
     expect(Array.isArray(dislodged[0].retreatOptions)).toBe(true);
   });
+
+  it('fleet dislodged from rum can only retreat to bul-ec, not bul-sc', () => {
+    // F rum adj fleet: bla, bul-ec, con, sev — only east coast of bul reachable
+    // F bla attacks rum with support; check retreat options include bul-ec but not bul-sc
+    const { dislodged } = resolve(
+      [F('rum', 'AUSTRIA'), F('bla', 'RUSSIA'), F('sev', 'RUSSIA')],
+      {
+        bla: { type: 'move', dest: 'rum' },
+        sev: { type: 'support', target: 'bla', dest: 'rum' },
+      }
+    );
+    expect(dislodged.length).toBe(1);
+    expect(dislodged[0].unit.id).toBe('rum');
+    expect(dislodged[0].retreatOptions).toContain('bul-ec');
+    expect(dislodged[0].retreatOptions).not.toContain('bul-sc');
+    expect(dislodged[0].retreatOptions).not.toContain('bul');
+  });
+
+  it('fleet dislodged from con can retreat to both bul-ec and bul-sc', () => {
+    // F con adj fleet: aeg, bla, bul-ec, bul-sc, smy — both bul coasts reachable
+    // F bla attacks con, F ank (adj to con) supports
+    const { dislodged } = resolve(
+      [F('con', 'TURKEY'), F('bla', 'RUSSIA'), F('ank', 'RUSSIA')],
+      {
+        bla: { type: 'move', dest: 'con' },
+        ank: { type: 'support', target: 'bla', dest: 'con' },
+      }
+    );
+    expect(dislodged.length).toBe(1);
+    expect(dislodged[0].unit.id).toBe('con');
+    expect(dislodged[0].retreatOptions).toContain('bul-ec');
+    expect(dislodged[0].retreatOptions).toContain('bul-sc');
+    expect(dislodged[0].retreatOptions).not.toContain('bul');
+  });
 });
 
 // ── Edge cases from rules reference ────────────────────────────────────────
