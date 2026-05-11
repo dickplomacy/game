@@ -474,6 +474,7 @@ function App() {
           <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
             <DipMap
               units={units}
+              orders={orders}
               territoryOwners={owners}
               selectedUnit={selectedUnit}
               validMoves={getValidMovesForMode()}

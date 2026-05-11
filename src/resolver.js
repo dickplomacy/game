@@ -418,8 +418,11 @@ function resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStre
           if (!rivalsPending) {
             if (status[uid] !== 'succeeded') { status[uid] = 'succeeded'; changed = true; }
           }
+        } else if (atkStr < maxRivalStr) {
+          // strictly weaker than the strongest rival — can never win
+          if (status[uid] !== 'failed') { status[uid] = 'failed'; changed = true; }
         }
-        // Equal or less → wait; cycle detection handles bounces
+        // Equal strength → wait; cycle detection handles the standoff
       }
     }
   }

@@ -391,6 +391,21 @@ describe('edge cases', () => {
     expect(at(units, 'yor')).toBeFalsy(); // nobody moved in
   });
 
+  it('supported unit beats unsupported rival moving to same empty territory', () => {
+    // A ruh → hol (str 2, supported by F kie), A bel → hol (str 1) — ruh wins
+    const { units } = resolve(
+      [A('ruh', 'GERMANY'), F('kie', 'GERMANY'), A('bel', 'ENGLAND')],
+      {
+        ruh: { type: 'move', dest: 'hol' },
+        kie: { type: 'support', target: 'ruh', dest: 'hol' },
+        bel: { type: 'move', dest: 'hol' },
+      }
+    );
+    expect(at(units, 'hol')?.power).toBe('GERMANY'); // ruh moved in
+    expect(at(units, 'bel')?.power).toBe('ENGLAND'); // bel bounced
+    expect(at(units, 'ruh')).toBeFalsy();             // ruh vacated
+  });
+
   it('circular move with one unit blocked: all fail (chain is broken)', () => {
     // lon → wal → yor → lon: would be a cycle, but a 4th unit (FRANCE) also moves to wal.
     // wal can't move to yor (yor → lon fails because lon → wal fails because of the bounce at wal).

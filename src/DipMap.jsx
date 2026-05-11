@@ -60,6 +60,97 @@ function SupplyCenterStar({ t }) {
   );
 }
 
+// Returns {x, y} for a territory id (base or coast variant)
+function coord(id) {
+  const base = id.includes('-') ? id.split('-')[0] : id;
+  return territories[id]?.unitCoord ?? territories[base]?.unitCoord ?? null;
+}
+
+// Shorten a line segment so arrowhead doesn't overlap unit symbol
+function shorten(x1, y1, x2, y2, amount) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < amount * 2) return { x2, y2 };
+  return { x2: x2 - (dx / len) * amount, y2: y2 - (dy / len) * amount };
+}
+
+function OrderArrows({ orders, units }) {
+  const unitById = {};
+  units.forEach(u => { unitById[u.id] = u; });
+
+  const arrows = [];
+  Object.entries(orders).forEach(([uid, order]) => {
+    const src = unitById[uid];
+    if (!src) return;
+    const { x: x1, y: y1, power } = src;
+    const color = POWER_COLORS[power] || '#999';
+
+    if (order.type === 'move') {
+      const dst = coord(order.dest);
+      if (!dst) return;
+      const { x2, y2 } = shorten(x1, y1, dst.x, dst.y, 16);
+      arrows.push(
+        <line key={uid} x1={x1} y1={y1} x2={x2} y2={y2}
+          stroke={color} strokeWidth={2.5} markerEnd="url(#arrow)"
+          style={{ pointerEvents: 'none' }} />
+      );
+    }
+
+    if (order.type === 'support') {
+      const tgt = unitById[order.target];
+      if (!tgt) return;
+      if (order.dest) {
+        // Support move: line from supporter toward attack destination
+        const dst = coord(order.dest);
+        if (!dst) return;
+        const { x2, y2 } = shorten(x1, y1, dst.x, dst.y, 16);
+        arrows.push(
+          <line key={uid} x1={x1} y1={y1} x2={x2} y2={y2}
+            stroke={color} strokeWidth={2} strokeDasharray="6 3" markerEnd="url(#arrow-dashed)"
+            style={{ pointerEvents: 'none' }} />
+        );
+      } else {
+        // Support hold: dashed line from supporter to supported unit
+        const { x2, y2 } = shorten(x1, y1, tgt.x, tgt.y, 16);
+        arrows.push(
+          <line key={uid} x1={x1} y1={y1} x2={x2} y2={y2}
+            stroke={color} strokeWidth={2} strokeDasharray="4 3"
+            style={{ pointerEvents: 'none' }} />
+        );
+        // Small ring around supported unit
+        arrows.push(
+          <circle key={uid + '-ring'} cx={tgt.x} cy={tgt.y} r={17}
+            fill="none" stroke={color} strokeWidth={2} strokeDasharray="4 3"
+            style={{ pointerEvents: 'none' }} />
+        );
+      }
+    }
+
+    if (order.type === 'convoy') {
+      // Find the army being convoyed
+      const army = unitById[order.army];
+      if (!army) return;
+      const dst = coord(order.dest);
+      if (!dst) return;
+      // Dashed arrow from army toward destination (shows the intended path)
+      const { x2, y2 } = shorten(army.x, army.y, dst.x, dst.y, 16);
+      arrows.push(
+        <line key={uid + '-convoy'} x1={army.x} y1={army.y} x2={x2} y2={y2}
+          stroke={color} strokeWidth={2} strokeDasharray="8 4" markerEnd="url(#arrow-dashed)"
+          style={{ pointerEvents: 'none' }} />
+      );
+      // Ring around the convoying fleet
+      arrows.push(
+        <circle key={uid + '-ring'} cx={x1} cy={y1} r={17}
+          fill="none" stroke={color} strokeWidth={2}
+          style={{ pointerEvents: 'none' }} />
+      );
+    }
+  });
+
+  return <g>{arrows}</g>;
+}
+
 function UnitSymbol({ unit, selected }) {
   const { x, y, type, power } = unit;
   const color = POWER_COLORS[power] || '#999';
@@ -78,7 +169,7 @@ function UnitSymbol({ unit, selected }) {
   );
 }
 
-export default function DipMap({ territoryOwners = {}, units = [], selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover }) {
+export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover }) {
   const tList = Object.values(territories);
   const unitsByTerritory = {};
   units.forEach(u => {
@@ -91,6 +182,14 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
       style={{ width: '100%', height: '100%', maxWidth: '100%', display: 'block' }}
       xmlns="http://www.w3.org/2000/svg"
     >
+      <defs>
+        <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="context-stroke" />
+        </marker>
+        <marker id="arrow-dashed" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="context-stroke" />
+        </marker>
+      </defs>
       <g transform="translate(-195 -170)">
         {tList.map(t => {
           if (!t.svg) return null;
@@ -117,6 +216,9 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
           const occupied = new Set(units.map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
           return SC_TERRITORIES.filter(t => !occupied.has(t.id)).map(t => <SupplyCenterStar key={t.id} t={t} />);
         })()}
+      </g>
+      <g>
+        <OrderArrows orders={orders} units={units} />
       </g>
       <g>
         {units.map(unit => (
