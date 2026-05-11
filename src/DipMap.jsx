@@ -31,11 +31,10 @@ const POWER_RGBA = {
   TURKEY:  [185, 166,  28],
 };
 
-function territoryFill(t, unitsByTerritory) {
+function territoryFill(t, unitsByTerritory, territoryOwners) {
   if (t.id.includes('-') || t.type === 'water' || t.type === 'impassable') return null;
-  const unit = unitsByTerritory[t.id];
-  if (!unit) return null;
-  const rgb = POWER_RGBA[unit.power];
+  const power = territoryOwners[t.id];
+  const rgb = power && POWER_RGBA[power];
   if (!rgb) return null;
   const alpha = t.supplyCenter ? 0.5 : 0.25;
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
@@ -96,7 +95,7 @@ export default function DipMap({ territoryOwners = {}, units = [], selectedUnit 
         {tList.map(t => {
           if (!t.svg) return null;
           const cls = getClass(t, territoryOwners) + (validMoves.has(t.id) ? ' valid-move' : '');
-          const fill = territoryFill(t, unitsByTerritory);
+          const fill = territoryFill(t, unitsByTerritory, territoryOwners);
           const handlers = {
             onClick: () => onTerritoryClick && onTerritoryClick(t.id),
             onMouseOver: () => onTerritoryHover && onTerritoryHover(t.id),

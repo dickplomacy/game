@@ -110,10 +110,46 @@ function renderOrderText(u, orders, units) {
   return `${u.type} ${displayId(u.id)}`;
 }
 
+// Initial territory ownership — all land territories each nation starts with
+const INITIAL_OWNERS = {
+  // Austria-Hungary
+  bud: 'AUSTRIA', tri: 'AUSTRIA', vie: 'AUSTRIA',
+  boh: 'AUSTRIA', gal: 'AUSTRIA', tyr: 'AUSTRIA',
+  // England
+  edi: 'ENGLAND', lon: 'ENGLAND', lvp: 'ENGLAND',
+  cly: 'ENGLAND', wal: 'ENGLAND', yor: 'ENGLAND',
+  // France
+  bre: 'FRANCE', mar: 'FRANCE', par: 'FRANCE',
+  bur: 'FRANCE', gas: 'FRANCE', pic: 'FRANCE',
+  // Germany
+  ber: 'GERMANY', kie: 'GERMANY', mun: 'GERMANY',
+  pru: 'GERMANY', ruh: 'GERMANY', sil: 'GERMANY',
+  // Italy
+  nap: 'ITALY', rom: 'ITALY', ven: 'ITALY',
+  apu: 'ITALY', pie: 'ITALY', tus: 'ITALY',
+  // Russia
+  mos: 'RUSSIA', sev: 'RUSSIA', stp: 'RUSSIA', war: 'RUSSIA',
+  fin: 'RUSSIA', lvn: 'RUSSIA', ukr: 'RUSSIA',
+  // Turkey
+  ank: 'TURKEY', con: 'TURKEY', smy: 'TURKEY',
+  arm: 'TURKEY', syr: 'TURKEY',
+};
+
+// Derive updated ownership from new unit positions (only updates occupied territories)
+function ownersFromUnits(prevOwners, newUnits) {
+  const next = { ...prevOwners };
+  newUnits.forEach(u => {
+    const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
+    next[base] = u.power;
+  });
+  return next;
+}
+
 function App() {
   const [title, setTitle] = useState("loading...");
   // setUnits will be used when resolver updates unit positions
   const [units, setUnits] = useState(STARTING_UNITS);
+  const [owners, setOwners] = useState(() => ownersFromUnits(INITIAL_OWNERS, STARTING_UNITS));
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [orders, setOrders] = useState({}); // { unitId: { type: 'move'|'support'|'convoy', dest?, target?, army? } }
   const [mode, setMode] = useState(null); // null | 'move' | 'support' | 'convoy'
@@ -234,6 +270,7 @@ function App() {
     if (pending.length > 0) {
       // Some dislodged units need player input — enter retreat phase
       setUnits(result.units);
+      setOwners(prev => ownersFromUnits(prev, result.units));
       setRetreatPhase({ dislodged: pending, retreatOrders: autoOrders });
     } else {
       // All retreats are auto-resolved; apply them immediately
@@ -260,6 +297,7 @@ function App() {
       newUnits.push({ ...unit, id: dest, x: t.unitCoord.x, y: t.unitCoord.y });
     });
     setUnits(newUnits);
+    setOwners(prev => ownersFromUnits(prev, newUnits));
     setRetreatPhase(null);
   }
 
@@ -425,6 +463,7 @@ function App() {
           <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
             <DipMap
               units={units}
+              territoryOwners={owners}
               selectedUnit={selectedUnit}
               validMoves={getValidMovesForMode()}
               onTerritoryClick={handleTerritoryClick}
