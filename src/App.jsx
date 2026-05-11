@@ -51,6 +51,8 @@ function getDisplayMoves(unit) {
 
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'];
 
+const SC_IDS = new Set(Object.values(territories).filter(t => t.supplyCenter && !t.id.includes('-')).map(t => t.id));
+
 const POWER_COLOR = {
   AUSTRIA: '#b22',
   ENGLAND: '#226',
@@ -86,9 +88,6 @@ const STARTING_UNITS = [
   { id: 'con', type: 'A', power: 'TURKEY',   x: 1145.5, y: 1137.0 },
   { id: 'smy', type: 'A', power: 'TURKEY',   x: 1253.5, y: 1210.0 },
   { id: 'ank', type: 'F', power: 'TURKEY',   x: 1301.5, y: 1110.0 },
-  // test units
-  { id: 'yor', type: 'A', power: 'ENGLAND',  x: 492.5,  y: 616.0  },
-  { id: 'nth', type: 'F', power: 'ENGLAND',  x: 553.5,  y: 560.0  },
 ];
 
 // Render an order as a short notation string
@@ -426,10 +425,11 @@ function App() {
               <div style={{ overflowY: 'auto', flex: 1 }}>
                 {POWERS.map(power => {
                   const powerUnits = units.filter(u => u.power === power);
+                  const scCount = Object.entries(owners).filter(([tid, p]) => p === power && SC_IDS.has(tid)).length;
                   return (
                     <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 6 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3 }}>
-                        {power}
+                        {power} <span style={{ fontWeight: 400, color: '#555' }}>({scCount} SC)</span>
                       </div>
                       {powerUnits.map(u => {
                         const order = orders[u.id];
