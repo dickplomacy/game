@@ -256,13 +256,14 @@ export function resolve(units, orders) {
     resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStrength, unitById, orders);
 
   // ── Self-dislodge prevention ──────────────────────────────────────────────
-  // A power cannot dislodge its own unit. Remove any success where attacker and
-  // defender are the same power.
+  // A power cannot dislodge its own unit. Only applies when the defender is
+  // staying (not vacating); if defender is also in succeeded, they are moving
+  // away and there is no dislodgement.
   succeeded.forEach(uid => {
     const dest = moves[uid];
     const defId = occupied.get(dest);
     if (!defId) return;
-    if (!succeeded.has(uid)) return; // already removed
+    if (succeeded.has(defId)) return; // defender is vacating — no dislodgement
     if (unitById[uid]?.power === unitById[defId]?.power) {
       succeeded.delete(uid);
     }
@@ -294,15 +295,13 @@ export function resolve(units, orders) {
       .map(m => baseId(m))
       .filter((tid, i, arr) => arr.indexOf(tid) === i) // dedupe
       .filter(tid => {
-        // Must not be occupied by a unit that isn't leaving
+        // Occupied and staying → not a valid retreat
         const occ = occupied.get(tid);
-        if (occ && !succeeded.has(occ)) return false;   // occupied and staying
-        if (occ && succeeded.has(occ)) return true;     // occupied but moving away
+        if (occ && !succeeded.has(occ)) return false;
+        // If the occupant is vacating (succeeded), the territory is becoming free,
+        // but we must still apply the attacker-origin and standoff checks.
 
-        // Must not be a standoff territory this turn
         if (standoffTerritories.has(tid)) return false;
-
-        // Must not be the territory the attacker came from
         if (tid === attackerSrcBase) return false;
 
         return true;
@@ -363,11 +362,13 @@ function resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStre
       const atkStr = attackStrength[uid] ?? 1;
 
       // ── Head-to-head ────────────────────────────────────────────────────
+      // A convoyed move passes through sea — skip HtH if EITHER unit is convoyed.
       if (
         occupantId &&
         moves[occupantId] === baseId(uid) &&
         status[occupantId] !== 'failed' &&
-        !convoyed.has(uid)
+        !convoyed.has(uid) &&
+        !convoyed.has(occupantId)
       ) {
         const oppAtk = attackStrength[occupantId] ?? 1;
         // Both need strictly more strength than the other to advance
