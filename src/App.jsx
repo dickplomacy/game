@@ -113,13 +113,15 @@ function renderOrderText(u, orders, units) {
 function App() {
   const [title, setTitle] = useState("loading...");
   // setUnits will be used when resolver updates unit positions
-  const [units, setUnits] = useState(STARTING_UNITS); // eslint-disable-line no-unused-vars
+  const [units, setUnits] = useState(STARTING_UNITS);
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [orders, setOrders] = useState({}); // { unitId: { type: 'move'|'support'|'convoy', dest?, target?, army? } }
   const [mode, setMode] = useState(null); // null | 'move' | 'support' | 'convoy'
   const [supportTarget, setSupportTarget] = useState(null); // unit being supported (step 2 of support)
   const [convoyArmy, setConvoyArmy] = useState(null); // army unit selected in convoy step 2
   const [coastChoice, setCoastChoice] = useState(null); // { unitId, coasts: [id, ...] } — pending coast selection
+  // retreatPhase: null | { dislodged: [{unit, retreatOptions}], retreatOrders: {unitId: destId|'disband'} }
+  const [retreatPhase, setRetreatPhase] = useState(null);
 
   useEffect(() => {
     getDoc(doc(db, "config", "ui")).then((snap) => {
@@ -221,9 +223,50 @@ function App() {
   }
 
   function resolveOrders() {
-    setUnits(prev => resolve(prev, orders));
+    const result = resolve(units, orders);
+    // Partition dislodged into needs-input vs auto-resolved
+    const pending = result.dislodged.filter(d => d.retreatOptions.length > 1);
+    const autoOrders = {};
+    result.dislodged.forEach(d => {
+      if (d.retreatOptions.length === 1) autoOrders[d.unit.id] = d.retreatOptions[0];
+      else if (d.retreatOptions.length === 0) autoOrders[d.unit.id] = 'disband';
+    });
+    if (pending.length > 0) {
+      // Some dislodged units need player input — enter retreat phase
+      setUnits(result.units);
+      setRetreatPhase({ dislodged: pending, retreatOrders: autoOrders });
+    } else {
+      // All retreats are auto-resolved; apply them immediately
+      applyRetreats(result.units, result.dislodged, autoOrders);
+    }
     setOrders({});
     resetMode();
+  }
+
+  function applyRetreats(currentUnits, dislodged, retreatOrders) {
+    // Handle conflicts: two units retreating to same territory — both disband
+    const destinations = Object.entries(retreatOrders)
+      .filter(([, d]) => d !== 'disband')
+      .map(([, d]) => d);
+    const conflicts = new Set(
+      destinations.filter((d, i) => destinations.indexOf(d) !== i)
+    );
+    const newUnits = [...currentUnits];
+    dislodged.forEach(({ unit }) => {
+      const dest = retreatOrders[unit.id];
+      if (!dest || dest === 'disband' || conflicts.has(dest)) return; // disband
+      const t = territories[dest] ?? territories[dest.split('-')[0]];
+      if (!t?.unitCoord) return;
+      newUnits.push({ ...unit, id: dest, x: t.unitCoord.x, y: t.unitCoord.y });
+    });
+    setUnits(newUnits);
+    setRetreatPhase(null);
+  }
+
+  function submitRetreats() {
+    if (!retreatPhase) return;
+    const { dislodged, retreatOrders } = retreatPhase;
+    applyRetreats(units, dislodged, retreatOrders);
   }
 
   function unitPositions(filterFn) {
@@ -274,60 +317,104 @@ function App() {
 
         {/* Orders panel */}
         <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <button
-            onClick={resolveOrders}
-            style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
-          >
-            ▶ Resolve Orders
-          </button>
-          <div style={{ display: 'flex', gap: 5 }}>
-            <button
-              onClick={() => { setMode(m => m === 'move' ? null : 'move'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
-              style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'move' ? '#2a6e2a' : '#444', color: '#fff', border: mode === 'move' ? '2px solid #7fef7f' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
-            >
-              M Move
-            </button>
-            <button
-              onClick={() => { setMode(m => m === 'support' ? null : 'support'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
-              style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'support' ? '#b8860b' : '#444', color: '#fff', border: mode === 'support' ? '2px solid #ffd700' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
-            >
-              S Support
-            </button>
-            <button
-              onClick={() => { setMode(m => m === 'convoy' ? null : 'convoy'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
-              style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'convoy' ? '#1a5c8a' : '#444', color: '#fff', border: mode === 'convoy' ? '2px solid #5bc8ff' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
-            >
-              C Convoy
-            </button>
-          </div>
-          <div style={{ overflowY: 'auto', flex: 1 }}>
-            {POWERS.map(power => {
-              const powerUnits = units.filter(u => u.power === power);
-              return (
-                <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 6 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3 }}>
-                    {power}
-                  </div>
-                  {powerUnits.map(u => {
-                    const order = orders[u.id];
-                    return (
-                      <div key={u.id} style={{ display: 'flex', alignItems: 'center', fontSize: 11, marginBottom: 2, color: order ? '#111' : '#bbb' }}>
-                        <span style={{ fontFamily: 'monospace', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {renderOrderText(u, orders, units)}
-                        </span>
-                        {order && (
-                          <button
-                            onClick={() => cancelOrder(u.id)}
-                            style={{ marginLeft: 3, flexShrink: 0, fontSize: 9, padding: '1px 4px', cursor: 'pointer', border: '1px solid #ccc', background: 'none', borderRadius: 2, lineHeight: 1.6, color: '#888' }}
-                          >✕</button>
-                        )}
+          {retreatPhase ? (
+            <>
+              <div style={{ fontWeight: 700, fontSize: 12, color: '#b22', letterSpacing: '0.03em', padding: '4px 0' }}>⚠ RETREAT PHASE</div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {retreatPhase.dislodged.map(({ unit, retreatOptions }) => {
+                  const chosenDest = retreatPhase.retreatOrders[unit.id];
+                  return (
+                    <div key={unit.id} style={{ borderLeft: `3px solid ${POWER_COLOR[unit.power]}`, paddingLeft: 7, marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: POWER_COLOR[unit.power], marginBottom: 3 }}>
+                        {unit.power}: {unit.type} {displayId(unit.id)} (dislodged)
                       </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {retreatOptions.map(tid => (
+                          <button
+                            key={tid}
+                            onClick={() => setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: tid } }))}
+                            style={{ padding: '4px 6px', cursor: 'pointer', fontSize: 11, textAlign: 'left', background: chosenDest === tid ? '#1a1a2e' : '#eee', color: chosenDest === tid ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3, fontWeight: chosenDest === tid ? 700 : 400 }}
+                          >
+                            → {displayId(tid)}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: 'disband' } }))}
+                          style={{ padding: '4px 6px', cursor: 'pointer', fontSize: 11, textAlign: 'left', background: chosenDest === 'disband' ? '#b22' : '#eee', color: chosenDest === 'disband' ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3 }}
+                        >
+                          ✕ Disband
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                onClick={submitRetreats}
+                disabled={retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id])}
+                style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id]) ? 0.5 : 1 }}
+              >
+                ▶ Submit Retreats
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={resolveOrders}
+                style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
+              >
+                ▶ Resolve Orders
+              </button>
+              <div style={{ display: 'flex', gap: 5 }}>
+                <button
+                  onClick={() => { setMode(m => m === 'move' ? null : 'move'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'move' ? '#2a6e2a' : '#444', color: '#fff', border: mode === 'move' ? '2px solid #7fef7f' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
+                >
+                  M Move
+                </button>
+                <button
+                  onClick={() => { setMode(m => m === 'support' ? null : 'support'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'support' ? '#b8860b' : '#444', color: '#fff', border: mode === 'support' ? '2px solid #ffd700' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
+                >
+                  S Support
+                </button>
+                <button
+                  onClick={() => { setMode(m => m === 'convoy' ? null : 'convoy'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'convoy' ? '#1a5c8a' : '#444', color: '#fff', border: mode === 'convoy' ? '2px solid #5bc8ff' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
+                >
+                  C Convoy
+                </button>
+              </div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {POWERS.map(power => {
+                  const powerUnits = units.filter(u => u.power === power);
+                  return (
+                    <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 6 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3 }}>
+                        {power}
+                      </div>
+                      {powerUnits.map(u => {
+                        const order = orders[u.id];
+                        return (
+                          <div key={u.id} style={{ display: 'flex', alignItems: 'center', fontSize: 11, marginBottom: 2, color: order ? '#111' : '#bbb' }}>
+                            <span style={{ fontFamily: 'monospace', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {renderOrderText(u, orders, units)}
+                            </span>
+                            {order && (
+                              <button
+                                onClick={() => cancelOrder(u.id)}
+                                style={{ marginLeft: 3, flexShrink: 0, fontSize: 9, padding: '1px 4px', cursor: 'pointer', border: '1px solid #ccc', background: 'none', borderRadius: 2, lineHeight: 1.6, color: '#888' }}
+                              >✕</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Map */}

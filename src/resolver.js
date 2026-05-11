@@ -115,77 +115,242 @@ function hasConvoyChain(armyId, armySrcBase, destOrigId, units, orders) {
 }
 
 /**
- * Resolve orders and return updated unit array.
+ * Resolve orders and return updated state.
  *
  * @param {object[]} units   [{id, type, power, x, y}, ...]
- * @param {object}   orders  {unitId: {type, dest?, target?, army?}}
- * @returns {object[]} New unit array with positions updated for successful moves
+ * @param {object}   orders  {unitId: {type, dest?, target?, army?, dest?}}
+ * @returns {{ units: object[], dislodged: object[] }}
+ *   units     — new positions after successful moves (dislodged units removed)
+ *   dislodged — array of { unit, retreatOptions: string[] } for the retreat phase
+ *               retreatOptions is the set of base territory ids the unit may retreat to
+ *               (empty means the unit must disband)
  */
 export function resolve(units, orders) {
-  // Map base territory id → unit id (unit.id IS its territory)
+  // Map base territory id → unit id
   const occupied = new Map();
-  units.forEach(u => {
-    occupied.set(baseId(u.id), u.id);
-  });
+  units.forEach(u => occupied.set(baseId(u.id), u.id));
 
-  // Collect move orders: unitId → destination base territory id
-  // Keep original dest separately for applying (may include coast variant like 'spa-sc')
-  // Non-adjacent moves are accepted only when a valid convoy chain exists.
-  const moves = {};        // unitId → base dest id  (collision detection)
-  const origDest = {};     // unitId → original dest id from order (for applying)
-  const convoyed = new Set(); // unitIds whose move goes via convoy (not direct adjacency)
+  // unitId → unit object (quick lookup)
+  const unitById = Object.fromEntries(units.map(u => [u.id, u]));
+
+  // ── Collect move orders ──────────────────────────────────────────────────
+  const moves    = {};        // unitId → base dest id
+  const origDest = {};        // unitId → original dest id (may have coast variant)
+  const convoyed = new Set(); // unitIds whose move is via convoy
+
   units.forEach(u => {
     const o = orders[u.id];
     if (o?.type === 'move' && o.dest) {
       if (isAdjacent(u, o.dest)) {
-        moves[u.id] = baseId(o.dest);
+        moves[u.id]    = baseId(o.dest);
         origDest[u.id] = o.dest;
       } else if (u.type === 'A') {
         const srcBase = baseId(u.id);
         if (hasConvoyChain(u.id, srcBase, o.dest, units, orders)) {
-          moves[u.id] = baseId(o.dest);
+          moves[u.id]    = baseId(o.dest);
           origDest[u.id] = o.dest;
           convoyed.add(u.id);
         }
-        // else: non-adjacent, no convoy chain → treated as hold
       }
     }
   });
 
-  const succeeded = resolveSimpleMoves(moves, occupied, convoyed);
-
-  return units.map(u => {
-    if (!succeeded.has(u.id)) return u;
-    const dest = origDest[u.id];
-    // Look up by coast variant first, fall back to base
-    const t = territories[dest] ?? territories[baseId(dest)];
-    if (!t?.unitCoord) return u;
-    return { ...u, id: dest, x: t.unitCoord.x, y: t.unitCoord.y };
+  // ── Compute attack strength for each moving unit ─────────────────────────
+  // strength[uid] = 1 + number of valid move-supports for that unit's move order
+  // A support order {type:'support', target:tgtId, dest:destId} is valid when:
+  //   - The supporter is adjacent to the destination being supported into
+  //   - The target unit actually has a move order to that destination
+  //   - The supporter is not the same power as the defending unit (self-dislodge rule)
+  //     NOTE: self-dislodge prevention: if attacker and defender are same power, move fails.
+  //           We handle self-dislodge as a post-resolution check.
+  const attackStrength = {};
+  units.forEach(u => {
+    if (moves[u.id]) attackStrength[u.id] = 1;
   });
+
+  units.forEach(supporter => {
+    const o = orders[supporter.id];
+    if (o?.type !== 'support' || !o.dest) return; // only move-support (not hold-support) boosts attack
+
+    const target = unitById[o.target];
+    if (!target) return;
+
+    const targetDest = moves[target.id];
+    if (!targetDest) return; // target isn't moving (or move is invalid)
+    if (targetDest !== baseId(o.dest)) return; // support is for a different destination
+
+    // Supporter must be adjacent to the destination
+    const suppAdj = isAdjacentById(supporter.id, supporter.type, o.dest);
+    if (!suppAdj) return;
+
+    attackStrength[target.id] = (attackStrength[target.id] ?? 1) + 1;
+  });
+
+  // ── Compute hold strength for each non-moving unit ───────────────────────
+  // hold strength = 1 + valid hold-support orders
+  const holdStrength = {};
+  units.forEach(u => { holdStrength[u.id] = 1; });
+
+  units.forEach(supporter => {
+    const o = orders[supporter.id];
+    if (o?.type !== 'support' || o.dest) return; // only hold-support (dest is null)
+
+    const target = unitById[o.target];
+    if (!target) return;
+    if (moves[target.id]) return; // target is moving, can't hold-support a mover
+
+    holdStrength[target.id] = (holdStrength[target.id] ?? 1) + 1;
+  });
+
+  // ── Support-cutting ───────────────────────────────────────────────────────
+  // A support order is cut if the supporter is attacked from any territory
+  // EXCEPT the destination being supported into.
+  // "Attacked" means: a unit has a move order to the supporter's territory.
+  // Cut support is removed by zeroing its contribution.
+
+  // Build set of supporters that are cut
+  const cutSupporters = new Set();
+  units.forEach(attacker => {
+    const dest = moves[attacker.id];
+    if (!dest) return;
+    const defenderUnitId = occupied.get(dest);
+    if (!defenderUnitId) return;
+    const defenderOrder = orders[defenderUnitId];
+    if (defenderOrder?.type !== 'support') return;
+
+    // defenderUnitId is a supporter — check if attacker came from a different direction
+    const supportedDest = defenderOrder.dest ? baseId(defenderOrder.dest) : null;
+    if (supportedDest && baseId(attacker.id) === supportedDest) return; // attacker came from the dest being supported into — no cut
+
+    cutSupporters.add(defenderUnitId);
+  });
+
+  // Re-compute attack strengths removing cut supporters
+  // Reset and recount
+  units.forEach(u => { if (moves[u.id]) attackStrength[u.id] = 1; });
+  units.forEach(supporter => {
+    if (cutSupporters.has(supporter.id)) return;
+    const o = orders[supporter.id];
+    if (o?.type !== 'support' || !o.dest) return;
+    const target = unitById[o.target];
+    if (!target) return;
+    const targetDest = moves[target.id];
+    if (!targetDest || targetDest !== baseId(o.dest)) return;
+    if (!isAdjacentById(supporter.id, supporter.type, o.dest)) return;
+    attackStrength[target.id] = (attackStrength[target.id] ?? 1) + 1;
+  });
+
+  // Re-compute hold strengths removing cut supporters
+  units.forEach(u => { holdStrength[u.id] = 1; });
+  units.forEach(supporter => {
+    if (cutSupporters.has(supporter.id)) return;
+    const o = orders[supporter.id];
+    if (o?.type !== 'support' || o.dest) return;
+    const target = unitById[o.target];
+    if (!target || moves[target.id]) return;
+    holdStrength[target.id] = (holdStrength[target.id] ?? 1) + 1;
+  });
+
+  // ── Resolution ────────────────────────────────────────────────────────────
+  const { succeeded, standoffTerritories, attackerOf } =
+    resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStrength, unitById, orders);
+
+  // ── Self-dislodge prevention ──────────────────────────────────────────────
+  // A power cannot dislodge its own unit. Remove any success where attacker and
+  // defender are the same power.
+  succeeded.forEach(uid => {
+    const dest = moves[uid];
+    const defId = occupied.get(dest);
+    if (!defId) return;
+    if (!succeeded.has(uid)) return; // already removed
+    if (unitById[uid]?.power === unitById[defId]?.power) {
+      succeeded.delete(uid);
+    }
+  });
+
+  // ── Build result ─────────────────────────────────────────────────────────
+  // Determine which units are dislodged:
+  // a unit is dislodged if a successful mover is entering its territory
+  const dislodgedIds = new Set();
+  succeeded.forEach(uid => {
+    const dest = moves[uid];
+    const occupantId = occupied.get(dest);
+    if (occupantId && !succeeded.has(occupantId)) {
+      dislodgedIds.add(occupantId);
+    }
+  });
+
+  // Compute retreat options for each dislodged unit
+  const dislodged = [];
+  dislodgedIds.forEach(uid => {
+    const u = unitById[uid];
+    const srcBase = baseId(u.id);
+    const attackerSrcBase = attackerOf[srcBase] ? baseId(attackerOf[srcBase]) : null;
+
+    const entry = territories[u.id] ?? territories[srcBase];
+    const adjList = u.type === 'A' ? (entry?.moves.army ?? []) : (entry?.moves.fleet ?? []);
+
+    const retreatOptions = adjList
+      .map(m => baseId(m))
+      .filter((tid, i, arr) => arr.indexOf(tid) === i) // dedupe
+      .filter(tid => {
+        // Must not be occupied by a unit that isn't leaving
+        const occ = occupied.get(tid);
+        if (occ && !succeeded.has(occ)) return false;   // occupied and staying
+        if (occ && succeeded.has(occ)) return true;     // occupied but moving away
+
+        // Must not be a standoff territory this turn
+        if (standoffTerritories.has(tid)) return false;
+
+        // Must not be the territory the attacker came from
+        if (tid === attackerSrcBase) return false;
+
+        return true;
+      });
+
+    dislodged.push({ unit: u, retreatOptions });
+  });
+
+  // Build new unit list: move succeeded units, remove dislodged
+  const newUnits = units
+    .filter(u => !dislodgedIds.has(u.id))
+    .map(u => {
+      if (!succeeded.has(u.id)) return u;
+      const dest = origDest[u.id];
+      const t = territories[dest] ?? territories[baseId(dest)];
+      if (!t?.unitCoord) return u;
+      return { ...u, id: dest, x: t.unitCoord.x, y: t.unitCoord.y };
+    });
+
+  return { units: newUnits, dislodged };
 }
 
 /**
- * Core resolution algorithm.
- * Returns a Set of unitIds whose move orders succeed.
- *
- * @param {object}   moves    { unitId: baseDestId }
- * @param {Map}      occupied Map<baseTerritoryId, unitId>
- * @param {Set}      convoyed Set of unitIds moving via convoy (exempt from head-to-head)
- * @returns {Set<string>}
+ * Adjacency check by territory id + unit type (for supporter adjacency check).
  */
-function resolveSimpleMoves(moves, occupied, convoyed = new Set()) {
-  // status for each moving unit
-  const status = {}; // unitId → 'pending' | 'succeeded' | 'failed'
+function isAdjacentById(srcId, unitType, destOrigId) {
+  const srcEntry = territories[srcId] ?? territories[baseId(srcId)];
+  if (!srcEntry) return false;
+  const dest = baseId(destOrigId);
+  if (unitType === 'A') {
+    return srcEntry.moves.army.some(m => baseId(m) === dest);
+  } else {
+    return srcEntry.moves.fleet.some(m => m === destOrigId || baseId(m) === dest);
+  }
+}
+
+/**
+ * Core resolution with strength.
+ * Returns { succeeded: Set<unitId>, standoffTerritories: Set<baseId>, attackerOf: {baseDest: unitId} }
+ */
+function resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStrength, unitById, orders) {
+  const status = {};
   for (const uid of Object.keys(moves)) status[uid] = 'pending';
 
-  // Get the unitId currently at a territory (null if vacant)
   function unitAt(tid) {
     return occupied.get(baseId(tid)) ?? null;
   }
 
-  // --- Iterative resolution ---
-  // Each pass marks units that can be definitively resolved.
-  // Repeat until no more progress.
   let changed = true;
   while (changed) {
     changed = false;
@@ -193,85 +358,114 @@ function resolveSimpleMoves(moves, occupied, convoyed = new Set()) {
     for (const uid of Object.keys(status)) {
       if (status[uid] !== 'pending') continue;
 
-      const dest = moves[uid];          // base dest territory
-      const occupantId = unitAt(dest);  // unit currently there (null if empty)
+      const dest = moves[uid];
+      const occupantId = unitAt(dest);
+      const atkStr = attackStrength[uid] ?? 1;
 
-      // ── Head-to-head ──────────────────────────────────────────────────────
-      // Occupant is moving back into uid's territory: A→B and B→A
-      // Both have strength 1, so neither advances.
-      // Exception: if uid is convoyed (passes via sea), there is no head-to-head —
-      // the occupant may move into uid's vacated territory normally.
+      // ── Head-to-head ────────────────────────────────────────────────────
       if (
         occupantId &&
         moves[occupantId] === baseId(uid) &&
         status[occupantId] !== 'failed' &&
-        !convoyed.has(uid)           // convoyed army doesn't create head-to-head
+        !convoyed.has(uid)
       ) {
-        if (status[uid] !== 'failed')        { status[uid] = 'failed';        changed = true; }
-        if (status[occupantId] !== 'failed') { status[occupantId] = 'failed'; changed = true; }
+        const oppAtk = attackStrength[occupantId] ?? 1;
+        // Both need strictly more strength than the other to advance
+        if (atkStr > oppAtk) {
+          // uid wins head-to-head
+          if (status[occupantId] !== 'failed') { status[occupantId] = 'failed'; changed = true; }
+        } else if (oppAtk > atkStr) {
+          if (status[uid] !== 'failed') { status[uid] = 'failed'; changed = true; }
+        } else {
+          // Equal strength — both fail
+          if (status[uid] !== 'failed')        { status[uid] = 'failed';        changed = true; }
+          if (status[occupantId] !== 'failed') { status[occupantId] = 'failed'; changed = true; }
+        }
         continue;
       }
 
-      // ── Occupant holds or fails to move ───────────────────────────────────
-      // A unit can only be dislodged if attacker strength > holder strength.
-      // With no support, that means 1 > 1 = false — always blocked.
+      // ── Occupant holds or fails to move ─────────────────────────────────
       if (occupantId) {
         const occupantHasMove = moves[occupantId] !== undefined;
-        const occupantStatus  = occupantHasMove ? status[occupantId] : null; // null → holds
+        const occupantStatus  = occupantHasMove ? status[occupantId] : null;
 
         if (!occupantHasMove || occupantStatus === 'failed') {
-          // Occupant stays → attacker is blocked
-          if (status[uid] !== 'failed') { status[uid] = 'failed'; changed = true; }
+          const defStr = holdStrength[occupantId] ?? 1;
+          if (atkStr > defStr) {
+            // Attacker is strong enough to dislodge — fall through to rivalry check
+          } else {
+            if (status[uid] !== 'failed') { status[uid] = 'failed'; changed = true; }
+            continue;
+          }
+        } else if (occupantStatus === 'pending') {
           continue;
         }
-
-        if (occupantStatus === 'pending') {
-          // Can't decide yet — wait for occupant's move to resolve
-          continue;
-        }
-        // occupantStatus === 'succeeded': dest will be vacated → fall through
+        // occupantStatus === 'succeeded': will vacate
       }
 
-      // ── Destination is (or will be) clear — check for rivals ──────────────
-      // Other non-failed units also moving to the same destination.
+      // ── Rivals check ────────────────────────────────────────────────────
       const activeRivals = Object.keys(status).filter(
         vid => vid !== uid && moves[vid] === dest && status[vid] !== 'failed'
       );
 
       if (activeRivals.length === 0) {
-        // Sole mover to a clear territory — succeeds
         if (status[uid] !== 'succeeded') { status[uid] = 'succeeded'; changed = true; }
+      } else {
+        // Check if uid has strictly more strength than all rivals
+        const maxRivalStr = Math.max(...activeRivals.map(v => attackStrength[v] ?? 1));
+        if (atkStr > maxRivalStr) {
+          // uid beats all rivals — but only mark succeeded once rivals are resolved/failed
+          const rivalsPending = activeRivals.some(v => status[v] === 'pending');
+          if (!rivalsPending) {
+            if (status[uid] !== 'succeeded') { status[uid] = 'succeeded'; changed = true; }
+          }
+        }
+        // Equal or less → wait; cycle detection handles bounces
       }
-      // Rivals still active → wait; cycle detection will handle the bounce
     }
   }
 
   // ── Cycle detection ────────────────────────────────────────────────────────
-  // Any unit still 'pending' here is either:
-  //   (a) Part of a circular move chain (A→B→C→A) → all succeed
-  //   (b) Part of a bounce against another pending unit → all fail
-  //
-  // Follow each pending unit's chain. If it loops back to the start → cycle.
   for (const startId of Object.keys(status)) {
     if (status[startId] !== 'pending') continue;
-
     const chain = [];
     let cur = startId;
-
     while (cur && status[cur] === 'pending' && !chain.includes(cur)) {
       chain.push(cur);
-      const nextDest = moves[cur];
-      cur = unitAt(nextDest) ?? null; // who is currently at that destination?
+      cur = unitAt(moves[cur]) ?? null;
     }
-
     if (cur === startId) {
-      // Perfect closed cycle → all moves in the cycle succeed
       chain.forEach(uid => { status[uid] = 'succeeded'; });
     } else {
-      // Open chain (ends in empty space or a non-pending unit) → bounce, all fail
       chain.forEach(uid => { if (status[uid] === 'pending') status[uid] = 'failed'; });
     }
   }
 
-  return new Set(Object.keys(status).filter(uid => status[uid] === 'succeeded'));
+  // ── Standoff territories: any territory where 2+ units tried to move and none succeeded ──
+  const standoffTerritories = new Set();
+  const destAttempts = {};
+  for (const uid of Object.keys(moves)) {
+    const d = moves[uid];
+    destAttempts[d] = (destAttempts[d] ?? 0) + 1;
+  }
+  for (const [dest, count] of Object.entries(destAttempts)) {
+    if (count >= 2) {
+      const anySucceeded = Object.keys(moves).some(uid => moves[uid] === dest && status[uid] === 'succeeded');
+      if (!anySucceeded) standoffTerritories.add(dest);
+    }
+  }
+
+  // ── attackerOf: for each base dest, which unit attacked it (succeeded) ───
+  const attackerOf = {};
+  for (const uid of Object.keys(status)) {
+    if (status[uid] === 'succeeded') {
+      attackerOf[moves[uid]] = uid;
+    }
+  }
+
+  return {
+    succeeded: new Set(Object.keys(status).filter(uid => status[uid] === 'succeeded')),
+    standoffTerritories,
+    attackerOf,
+  };
 }
