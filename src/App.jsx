@@ -160,6 +160,20 @@ function getAvailableBuildSCs(power, ownerMap, unitList) {
   return (HOME_SCS[power] ?? []).filter(sc => ownerMap[sc] === power && !occupied.has(sc));
 }
 
+function checkWinner(ownerMap) {
+  return POWERS.find(p =>
+    Object.entries(ownerMap).filter(([tid, owner]) => owner === p && SC_IDS.has(tid)).length >= 18
+  ) ?? null;
+}
+
+function buildWinterData(ownerMap, unitList) {
+  const adjustments = computeAdjustments(ownerMap, unitList);
+  // Auto-submit empty orders for powers with no adjustment needed
+  const orders = {};
+  POWERS.forEach(p => { if (adjustments[p] === 0) orders[p] = { builds: [], disbands: [] }; });
+  return { adjustments, orders };
+}
+
 // Derive updated ownership from new unit positions (only updates occupied territories)
 function ownersFromUnits(prevOwners, newUnits) {
   const next = { ...prevOwners };
@@ -384,22 +398,23 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
 
   async function resolveOrdersMultiplayer() {
     if (!gameData || !gameCode) return;
-    // Flatten all per-power orders into a single { unitId: order } map
     const flatOrders = {};
     Object.values(gameData.orders ?? {}).forEach(powerOrders => {
       if (powerOrders) Object.assign(flatOrders, powerOrders);
     });
     const { result, pending, autoOrders } = runResolver(gameData.units ?? units, flatOrders);
-    const newOwners = ownersFromUnits(owners, result.units);
+    const isFall = gameData.phase === 'fall-move';
+    // SC ownership only updates at end of Fall
+    const movedOwners = isFall ? ownersFromUnits(owners, result.units) : owners;
     if (pending.length > 0) {
-      // Retreat phase needed — write to Firestore; onSnapshot will sync UI
       const retreatData = { dislodged: pending, retreatOrders: autoOrders };
-      await writeResolution(gameCode, result.units, newOwners, retreatData, gameData.phase, gameData.year);
+      await writeResolution(gameCode, result.units, movedOwners, retreatData, gameData.phase, gameData.year);
     } else {
-      // Auto-resolve all retreats immediately
       const { newUnits } = applyRetreatsCalc(result.units, result.dislodged, autoOrders);
-      const finalOwners = ownersFromUnits(newOwners, newUnits);
-      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year);
+      const finalOwners = isFall ? ownersFromUnits(movedOwners, newUnits) : owners;
+      const winner = isFall ? checkWinner(finalOwners) : null;
+      const winterData = isFall && !winner ? buildWinterData(finalOwners, newUnits) : null;
+      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner);
     }
     resetMode();
   }
@@ -433,14 +448,16 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   async function resolveRetreatsMultiplayer() {
     if (!gameData || !gameCode) return;
     const { dislodged, retreatOrders } = gameData.retreatPhase;
-    // Auto-disband any unit whose owner didn't submit
     const fullOrders = { ...retreatOrders };
     dislodged.forEach(({ unit }) => {
       if (!fullOrders[unit.id]) fullOrders[unit.id] = 'disband';
     });
     const { newUnits } = applyRetreatsCalc(gameData.units ?? units, dislodged, fullOrders);
-    const newOwners = ownersFromUnits(owners, newUnits);
-    await writeResolution(gameCode, newUnits, newOwners, null, gameData.phase, gameData.year);
+    const isFallRetreat = gameData.phase === 'fall-retreat';
+    const finalOwners = isFallRetreat ? ownersFromUnits(owners, newUnits) : owners;
+    const winner = isFallRetreat ? checkWinner(finalOwners) : null;
+    const winterData = isFallRetreat && !winner ? buildWinterData(finalOwners, newUnits) : null;
+    await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner);
     resetMode();
   }
 
@@ -549,7 +566,18 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         <h1 style={{ margin: 0, fontSize: '2rem' }}>{title}</h1>
         {phaseLabel && <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>{phaseLabel}</div>}
       </div>
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: '0.75rem', padding: '0.5rem 0.75rem' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: '0.75rem', padding: '0.5rem 0.75rem', position: 'relative' }}>
+
+        {/* Winner overlay */}
+        {gameData?.winner && (
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+            <div style={{ background: POWER_COLOR[gameData.winner], color: '#fff', padding: '2.5rem 3.5rem', borderRadius: 14, textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', userSelect: 'none' }}>
+              <div style={{ fontSize: 13, letterSpacing: '0.15em', opacity: 0.85, marginBottom: 6 }}>VICTORY</div>
+              <div style={{ fontSize: 42, fontWeight: 900, letterSpacing: '0.04em' }}>{gameData.winner}</div>
+              <div style={{ fontSize: 14, marginTop: 10, opacity: 0.9 }}>has conquered 18 supply centres</div>
+            </div>
+          </div>
+        )}
 
         {/* Orders panel */}
         <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>

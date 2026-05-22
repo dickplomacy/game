@@ -214,7 +214,7 @@ export async function submitRetreatOrders(gameCode, retreatOrdersMap) {
  * - retreatData: null | { dislodged, retreatOrders } — if set, enter retreat phase
  * - winterData: null | { adjustments, orders } — if set (fall only), enter winter phase
  */
-export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null) {
+export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null, winner = null) {
   let nextPhase, nextYear;
   if (retreatData) {
     nextPhase = currentPhase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
@@ -240,6 +240,7 @@ export async function writeResolution(gameCode, newUnits, newOwners, retreatData
     year: nextYear,
     retreatPhase: retreatData ?? null,
     winterPhase: nextPhase === 'winter' ? winterData : null,
+    ...(winner ? { winner } : {}),
     updatedAt: serverTimestamp(),
   });
 }
