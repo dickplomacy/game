@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
@@ -245,6 +245,36 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     // Reset local orders when a new turn starts (orders cleared server-side)
     if (isMultiplayer && gameData.orders && Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
       setOrders({});
+    }
+  }, [gameData]);
+
+  // Auto-resolve when all orders are in (admin only, requires settings.autoResolve)
+  const autoResolvingRef = useRef(false);
+  useEffect(() => {
+    if (!isAdmin || !gameData?.settings?.autoResolve || autoResolvingRef.current) return;
+    const phase = gameData.phase;
+    if (phase === 'spring-move' || phase === 'fall-move') {
+      const allIn = POWERS.every(p => gameData.orders?.[p] != null);
+      if (allIn) {
+        autoResolvingRef.current = true;
+        resolveOrdersMultiplayer().finally(() => { autoResolvingRef.current = false; });
+      }
+    } else if (phase === 'spring-retreat' || phase === 'fall-retreat') {
+      const dislodged = gameData.retreatPhase?.dislodged ?? [];
+      const retreatOrders = gameData.retreatPhase?.retreatOrders ?? {};
+      const allIn = dislodged.every(({ unit }) => retreatOrders[unit.id] != null);
+      if (allIn && dislodged.length > 0) {
+        autoResolvingRef.current = true;
+        resolveRetreatsMultiplayer().finally(() => { autoResolvingRef.current = false; });
+      }
+    } else if (phase === 'winter') {
+      const adj = gameData.winterPhase?.adjustments ?? {};
+      const submittedOrders = gameData.winterPhase?.orders ?? {};
+      const allIn = POWERS.every(p => (adj[p] ?? 0) === 0 || submittedOrders[p] != null);
+      if (allIn) {
+        autoResolvingRef.current = true;
+        resolveWinterMultiplayer().finally(() => { autoResolvingRef.current = false; });
+      }
     }
   }, [gameData]);
 

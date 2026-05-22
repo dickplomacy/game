@@ -110,7 +110,7 @@ function randomCode(length = 4) {
  * Generates a unique 4-letter game code, retrying on collision.
  * Returns the full game document data including the generated code and player tokens.
  */
-export async function createGame() {
+export async function createGame(settings = {}) {
   let code;
   let attempts = 0;
 
@@ -148,6 +148,9 @@ export async function createGame() {
     owners,
     orders: {},
     retreatPhase: null,
+    settings: {
+      autoResolve: settings.autoResolve ?? false,
+    },
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };

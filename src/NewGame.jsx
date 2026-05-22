@@ -16,12 +16,13 @@ export default function NewGame() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(null);
+  const [autoResolve, setAutoResolve] = useState(false);
 
   async function handleCreate() {
     setLoading(true);
     setError(null);
     try {
-      const g = await createGame();
+      const g = await createGame({ autoResolve });
       setGame(g);
     } catch (e) {
       setError(e.message);
@@ -83,6 +84,15 @@ export default function NewGame() {
             {error}
           </div>
         )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14, cursor: 'pointer', userSelect: 'none', fontSize: 13, color: '#333' }}>
+          <input
+            type="checkbox"
+            checked={autoResolve}
+            onChange={e => setAutoResolve(e.target.checked)}
+            style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#1a1a2e' }}
+          />
+          Auto-resolve when all orders are submitted
+        </label>
         <button onClick={handleCreate} disabled={loading} style={{ ...btnStyle, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
           {loading ? 'Creating...' : '▶ Create Game'}
         </button>
