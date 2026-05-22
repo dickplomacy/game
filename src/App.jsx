@@ -565,6 +565,12 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       <div style={{ textAlign: 'center', margin: '0.5rem 0 0', flexShrink: 0, userSelect: 'none', lineHeight: 1.1 }}>
         <h1 style={{ margin: 0, fontSize: '2rem' }}>{title}</h1>
         {phaseLabel && <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>{phaseLabel}</div>}
+        {myPower && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 5, background: POWER_COLOR[myPower], color: '#fff', padding: '3px 14px', borderRadius: 20, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em' }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'rgba(255,255,255,0.45)', display: 'inline-block' }} />
+            {myPower}
+          </div>
+        )}
       </div>
       <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: '0.75rem', padding: '0.5rem 0.75rem', position: 'relative' }}>
 
@@ -741,8 +747,9 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   const scCount = Object.entries(owners).filter(([tid, p]) => p === power && SC_IDS.has(tid)).length;
                   // In multiplayer, show whether this power has submitted orders
                   const hasSubmitted = isMultiplayer && !!gameData?.orders?.[power];
+                  const isMyPower = !myPower || power === myPower;
                   return (
-                    <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 6 }}>
+                    <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 6, opacity: isMyPower ? 1 : 0.3 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span>{power}</span>
                         <span style={{ fontWeight: 400, color: '#555' }}>({scCount} SC)</span>
@@ -755,7 +762,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                             <span style={{ fontFamily: 'monospace', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {renderOrderText(u, orders, units)}
                             </span>
-                            {order && !submitted && (
+                            {order && !submitted && isMyPower && (
                               <button
                                 onClick={() => cancelOrder(u.id)}
                                 style={{ marginLeft: 3, flexShrink: 0, fontSize: 9, padding: '1px 4px', cursor: 'pointer', border: '1px solid #ccc', background: 'none', borderRadius: 2, lineHeight: 1.6, color: '#888' }}
