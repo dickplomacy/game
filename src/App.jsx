@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { db } from "./firebase";
-import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
@@ -197,7 +195,6 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const isAdmin = role === 'ADMIN';
   // The power this player controls (null for admin/observer)
   const myPower = (role && role !== 'ADMIN') ? role : null;
-  const [title, setTitle] = useState("loading...");
   // setUnits will be used when resolver updates unit positions
   const [units, setUnits] = useState(STARTING_UNITS);
   const [owners, setOwners] = useState(() => ownersFromUnits(INITIAL_OWNERS, STARTING_UNITS));
@@ -216,13 +213,6 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [winterPhase, setWinterPhase] = useState(null);
   // Local staging area for winter adjustment orders before submission
   const [winterOrders, setWinterOrders] = useState({ builds: [], disbands: [] });
-
-  useEffect(() => {
-    getDoc(doc(db, "config", "ui")).then((snap) => {
-      if (snap.exists()) setTitle(snap.data().title);
-      else setTitle("dickplomacy");
-    });
-  }, []);
 
   // Sync units, owners, and retreatPhase from Firestore whenever the server state changes
   useEffect(() => {
@@ -599,7 +589,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', fontFamily: 'system-ui, sans-serif', background: '#fff' }}>
       <div style={{ textAlign: 'center', margin: '0.5rem 0 0', flexShrink: 0, userSelect: 'none', lineHeight: 1.1 }}>
-        <h1 style={{ margin: 0, fontSize: '2rem' }}>{title}</h1>
+        <h1 style={{ margin: 0, fontSize: '2.2rem', fontFamily: '"Cinzel Decorative", serif', fontWeight: 700, letterSpacing: '0.04em' }}>Dickplomacy</h1>
         {phaseLabel && <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>{phaseLabel}</div>}
         {myPower && (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 5, background: POWER_COLOR[myPower], color: '#fff', padding: '3px 12px 3px 6px', borderRadius: 20, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em' }}>
