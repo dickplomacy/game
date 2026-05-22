@@ -4,7 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders, writeResolution } from "./gameService";
+import { submitOrders, clearOrders, writeResolution, submitRetreatOrders } from "./gameService";
 
 // Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
 function displayId(id) {
@@ -396,6 +396,30 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     setRetreatPhase(null);
   }
 
+  async function resolveRetreatsMultiplayer() {
+    if (!gameData || !gameCode) return;
+    const { dislodged, retreatOrders } = gameData.retreatPhase;
+    // Auto-disband any unit whose owner didn't submit
+    const fullOrders = { ...retreatOrders };
+    dislodged.forEach(({ unit }) => {
+      if (!fullOrders[unit.id]) fullOrders[unit.id] = 'disband';
+    });
+    const { newUnits } = applyRetreatsCalc(gameData.units ?? units, dislodged, fullOrders);
+    const newOwners = ownersFromUnits(owners, newUnits);
+    await writeResolution(gameCode, newUnits, newOwners, null, gameData.phase, gameData.year);
+    resetMode();
+  }
+
+  async function handleSubmitRetreatsMultiplayer() {
+    if (!gameCode || !myPower || !retreatPhase) return;
+    const myDislodged = retreatPhase.dislodged.filter(d => d.unit.power === myPower);
+    const myOrders = {};
+    myDislodged.forEach(({ unit }) => {
+      myOrders[unit.id] = retreatPhase.retreatOrders[unit.id] ?? 'disband';
+    });
+    await submitRetreatOrders(gameCode, myOrders);
+  }
+
   function submitRetreats() {
     if (!retreatPhase) return;
     const { dislodged, retreatOrders } = retreatPhase;
@@ -463,39 +487,78 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               <div style={{ overflowY: 'auto', flex: 1 }}>
                 {retreatPhase.dislodged.map(({ unit, retreatOptions }) => {
                   const chosenDest = retreatPhase.retreatOrders[unit.id];
+                  // In multiplayer, lock interaction for other powers' units
+                  const canEdit = !isMultiplayer || (unit.power === myPower);
+                  // A unit is "locked" once submitted to Firestore
+                  const lockedInFirestore = isMultiplayer && !!gameData?.retreatPhase?.retreatOrders?.[unit.id];
+                  const interactive = canEdit && !lockedInFirestore;
                   return (
-                    <div key={unit.id} style={{ borderLeft: `3px solid ${POWER_COLOR[unit.power]}`, paddingLeft: 7, marginBottom: 8 }}>
+                    <div key={unit.id} style={{ borderLeft: `3px solid ${POWER_COLOR[unit.power]}`, paddingLeft: 7, marginBottom: 8, opacity: (!canEdit) ? 0.5 : 1 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: POWER_COLOR[unit.power], marginBottom: 3 }}>
                         {unit.power}: {unit.type} {displayId(unit.id)} (dislodged)
+                        {lockedInFirestore && <span style={{ fontWeight: 400, color: '#2a6e2a', marginLeft: 4 }}>✓</span>}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                         {retreatOptions.map(tid => (
                           <button
                             key={tid}
-                            onClick={() => setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: tid } }))}
-                            style={{ padding: '4px 6px', cursor: 'pointer', fontSize: 11, textAlign: 'left', background: chosenDest === tid ? '#1a1a2e' : '#eee', color: chosenDest === tid ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3, fontWeight: chosenDest === tid ? 700 : 400 }}
+                            onClick={() => { if (!interactive) return; setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: tid } })); }}
+                            style={{ padding: '4px 6px', cursor: interactive ? 'pointer' : 'default', fontSize: 11, textAlign: 'left', background: chosenDest === tid ? '#1a1a2e' : '#eee', color: chosenDest === tid ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3, fontWeight: chosenDest === tid ? 700 : 400 }}
                           >
                             → {displayId(tid)}
                           </button>
                         ))}
-                        <button
-                          onClick={() => setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: 'disband' } }))}
-                          style={{ padding: '4px 6px', cursor: 'pointer', fontSize: 11, textAlign: 'left', background: chosenDest === 'disband' ? '#b22' : '#eee', color: chosenDest === 'disband' ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3 }}
-                        >
-                          ✕ Disband
-                        </button>
+                        {interactive && (
+                          <button
+                            onClick={() => setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: 'disband' } }))}
+                            style={{ padding: '4px 6px', cursor: 'pointer', fontSize: 11, textAlign: 'left', background: chosenDest === 'disband' ? '#b22' : '#eee', color: chosenDest === 'disband' ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3 }}
+                          >
+                            ✕ Disband
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
-              <button
-                onClick={submitRetreats}
-                disabled={retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id])}
-                style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id]) ? 0.5 : 1 }}
-              >
-                ▶ Submit Retreats
-              </button>
+              {/* Retreat action buttons */}
+              {isMultiplayer ? (
+                isAdmin ? (
+                  <button
+                    onClick={resolveRetreatsMultiplayer}
+                    style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
+                  >
+                    ▶ Resolve Retreats
+                  </button>
+                ) : (() => {
+                  const myDislodged = retreatPhase.dislodged.filter(d => d.unit.power === myPower);
+                  if (myDislodged.length === 0) {
+                    return <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '6px 0' }}>Waiting for retreat resolution…</div>;
+                  }
+                  const retreatSubmitted = myDislodged.every(d => gameData?.retreatPhase?.retreatOrders?.[d.unit.id]);
+                  if (retreatSubmitted) {
+                    return <div style={{ padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>✓ Retreat Submitted</div>;
+                  }
+                  const allChosen = myDislodged.every(d => retreatPhase.retreatOrders[d.unit.id]);
+                  return (
+                    <button
+                      onClick={handleSubmitRetreatsMultiplayer}
+                      disabled={!allChosen}
+                      style={{ padding: '7px 6px', fontWeight: 'bold', cursor: allChosen ? 'pointer' : 'default', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: allChosen ? 1 : 0.5 }}
+                    >
+                      ▶ Submit Retreat
+                    </button>
+                  );
+                })()
+              ) : (
+                <button
+                  onClick={submitRetreats}
+                  disabled={retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id])}
+                  style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id]) ? 0.5 : 1 }}
+                >
+                  ▶ Submit Retreats
+                </button>
+              )}
             </>
           ) : (
             <>

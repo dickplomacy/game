@@ -198,6 +198,18 @@ export function getRoleForToken(game, token) {
 }
 
 /**
+ * Submit retreat choices for own power's dislodged units.
+ * retreatOrdersMap: { [unitId]: destId | 'disband' }
+ */
+export async function submitRetreatOrders(gameCode, retreatOrdersMap) {
+  const updates = { updatedAt: serverTimestamp() };
+  Object.entries(retreatOrdersMap).forEach(([unitId, dest]) => {
+    updates[`retreatPhase.retreatOrders.${unitId}`] = dest;
+  });
+  await updateDoc(doc(db, 'games', gameCode.toUpperCase()), updates);
+}
+
+/**
  * Write the result of order resolution back to Firestore.
  * - newUnits: unit array after moves applied
  * - newOwners: territory ownership map after moves
@@ -210,11 +222,11 @@ export async function writeResolution(gameCode, newUnits, newOwners, retreatData
     // Enter retreat sub-phase
     nextPhase = currentPhase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
     nextYear = currentYear;
-  } else if (currentPhase === 'spring-move') {
+  } else if (currentPhase === 'spring-move' || currentPhase === 'spring-retreat') {
     nextPhase = 'fall-move';
     nextYear = currentYear;
   } else {
-    // fall-move (or anything else) → next spring
+    // fall-move or fall-retreat → next spring
     nextPhase = 'spring-move';
     nextYear = currentYear + 1;
   }
