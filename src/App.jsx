@@ -155,6 +155,12 @@ function computeAdjustments(ownerMap, unitList) {
   return result;
 }
 
+const FLAGS = Object.fromEntries(
+  ['AUSTRIA','ENGLAND','FRANCE','GERMANY','ITALY','RUSSIA','TURKEY'].map(p =>
+    [p, `${import.meta.env.BASE_URL}flags/${p.toLowerCase()}.svg`]
+  )
+);
+
 function getAvailableBuildSCs(power, ownerMap, unitList) {
   const occupied = new Set(unitList.map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
   return (HOME_SCS[power] ?? []).filter(sc => ownerMap[sc] === power && !occupied.has(sc));
@@ -566,8 +572,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         <h1 style={{ margin: 0, fontSize: '2rem' }}>{title}</h1>
         {phaseLabel && <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>{phaseLabel}</div>}
         {myPower && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, marginTop: 5, background: POWER_COLOR[myPower], color: '#fff', padding: '3px 14px', borderRadius: 20, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em' }}>
-            <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'rgba(255,255,255,0.45)', display: 'inline-block' }} />
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 5, background: POWER_COLOR[myPower], color: '#fff', padding: '3px 12px 3px 6px', borderRadius: 20, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em' }}>
+            <img src={FLAGS[myPower]} alt={myPower} style={{ height: 18, width: 27, objectFit: 'cover', borderRadius: 2, boxShadow: '0 0 0 1px rgba(0,0,0,0.25)', flexShrink: 0 }} />
             {myPower}
           </div>
         )}
@@ -639,6 +645,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   return (
                     <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 8 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], marginBottom: 3, display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <img src={FLAGS[power]} alt={power} style={{ height: 11, width: 17, objectFit: 'cover', borderRadius: 1, flexShrink: 0, border: '1px solid rgba(0,0,0,0.15)' }} />
                         <span>{power}</span>
                         <span style={{ fontWeight: 400, color: adj > 0 ? '#2a6e2a' : adj < 0 ? '#b22' : '#888' }}>{adj > 0 ? `+${adj}` : adj < 0 ? String(adj) : '±0'}</span>
                         {submitted && <span style={{ color: '#2a6e2a', marginLeft: 'auto', fontWeight: 700 }}>✓</span>}
@@ -751,6 +758,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   return (
                     <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 6, opacity: isMyPower ? 1 : 0.3 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <img src={FLAGS[power]} alt={power} style={{ height: 11, width: 17, objectFit: 'cover', borderRadius: 1, flexShrink: 0, border: '1px solid rgba(0,0,0,0.15)' }} />
                         <span>{power}</span>
                         <span style={{ fontWeight: 400, color: '#555' }}>({scCount} SC)</span>
                         {isMultiplayer && <span style={{ marginLeft: 'auto', fontSize: 9, color: hasSubmitted ? '#2a6e2a' : '#aaa', fontWeight: 700 }}>{hasSubmitted ? '✓' : '…'}</span>}
