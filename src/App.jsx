@@ -4,6 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
+import { submitOrders, clearOrders } from "./gameService";
 
 // Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
 function displayId(id) {
@@ -145,6 +146,12 @@ function ownersFromUnits(prevOwners, newUnits) {
 }
 
 function App({ gameData = null, role = null, gameCode = null, playerToken = null }) {
+  // role: null (local/observer), 'ADMIN', or a power name like 'ENGLAND'
+  // isMultiplayer: true when loaded via a game link
+  const isMultiplayer = !!gameCode;
+  const isAdmin = role === 'ADMIN';
+  // The power this player controls (null for admin/observer)
+  const myPower = (role && role !== 'ADMIN') ? role : null;
   const [title, setTitle] = useState("loading...");
   // setUnits will be used when resolver updates unit positions
   const [units, setUnits] = useState(STARTING_UNITS);
@@ -157,6 +164,9 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [coastChoice, setCoastChoice] = useState(null); // { unitId, coasts: [id, ...] } — pending coast selection
   // retreatPhase: null | { dislodged: [{unit, retreatOptions}], retreatOrders: {unitId: destId|'disband'} }
   const [retreatPhase, setRetreatPhase] = useState(null);
+  // Whether this player has submitted orders to Firestore this turn
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     getDoc(doc(db, "config", "ui")).then((snap) => {
@@ -170,6 +180,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (!gameData) return;
     if (gameData.units) setUnits(gameData.units);
     if (gameData.owners) setOwners(gameData.owners);
+    // Reset submitted flag when orders for our power are cleared (new turn)
+    if (myPower && !gameData.orders?.[myPower]) setSubmitted(false);
   }, [gameData]);
 
   useEffect(() => {
@@ -196,10 +208,13 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   }
 
   function handleTerritoryClick(id) {
+    // In multiplayer, only allow interacting with own power's units; lock when submitted
+    if (submitted) return;
     if (mode === 'support') {
       if (!selectedUnit) {
-        // Step 1: pick the supporting unit
-        setSelectedUnit(findUnit(id));
+        const unit = findUnit(id);
+        if (myPower && unit?.power !== myPower) return;
+        setSelectedUnit(unit);
       } else if (!supportTarget) {
         // Step 2: pick the unit to support
         const isSelected = selectedUnit.id === id || selectedUnit.id.startsWith(id + '-');
@@ -221,9 +236,12 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
 
     if (mode === 'convoy') {
       if (!selectedUnit) {
-        // Step 1: pick a fleet in a water territory
+        // Step 1: pick a fleet in a water territory (must be own power's unit)
         const unit = findUnit(id);
-        if (unit && unit.type === 'F' && territories[unit.id] && territories[unit.id].type === 'water') setSelectedUnit(unit);
+        if (unit && unit.type === 'F' && territories[unit.id] && territories[unit.id].type === 'water') {
+          if (myPower && unit.power !== myPower) return;
+          setSelectedUnit(unit);
+        }
       } else if (!convoyArmy) {
         // Step 2: pick an army
         const isSelected = selectedUnit.id === id || selectedUnit.id.startsWith(id + '-');
@@ -267,8 +285,28 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         setSelectedUnit(findUnit(id));
       }
     } else {
-      setSelectedUnit(findUnit(id));
+      const unit = findUnit(id);
+      if (myPower && unit?.power !== myPower) return;
+      setSelectedUnit(unit);
     }
+  }
+
+  async function handleSubmitOrders() {
+    if (!gameCode || !myPower) return;
+    setSubmitting(true);
+    try {
+      await submitOrders(gameCode, myPower, orders);
+      setSubmitted(true);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleClearOrders() {
+    if (!gameCode || !myPower) return;
+    await clearOrders(gameCode, myPower);
+    setOrders({});
+    setSubmitted(false);
   }
 
   function cancelOrder(unitId) {
@@ -414,28 +452,54 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
             </>
           ) : (
             <>
-              <button
-                onClick={resolveOrders}
-                style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
-              >
-                ▶ Resolve Orders
-              </button>
+              {/* Resolve button: local mode always shows it; multiplayer only for admin */}
+              {(!isMultiplayer || isAdmin) && (
+                <button
+                  onClick={resolveOrders}
+                  style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
+                >
+                  ▶ Resolve Orders
+                </button>
+              )}
+              {/* Submit Orders button for non-admin multiplayer players */}
+              {isMultiplayer && myPower && (
+                submitted ? (
+                  <div style={{ display: 'flex', gap: 5 }}>
+                    <div style={{ flex: 1, padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>
+                      ✓ Orders Submitted
+                    </div>
+                    <button
+                      onClick={handleClearOrders}
+                      style={{ padding: '7px 8px', fontWeight: 'bold', cursor: 'pointer', background: '#666', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11 }}
+                      title="Edit orders"
+                    >✎</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleSubmitOrders}
+                    disabled={submitting}
+                    style={{ padding: '7px 6px', fontWeight: 'bold', cursor: submitting ? 'default' : 'pointer', background: '#1a5c8a', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: submitting ? 0.6 : 1 }}
+                  >
+                    {submitting ? 'Submitting…' : '▶ Submit Orders'}
+                  </button>
+                )
+              )}
               <div style={{ display: 'flex', gap: 5 }}>
                 <button
-                  onClick={() => { setMode(m => m === 'move' ? null : 'move'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
-                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'move' ? '#2a6e2a' : '#444', color: '#fff', border: mode === 'move' ? '2px solid #7fef7f' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
+                  onClick={() => { if (submitted) return; setMode(m => m === 'move' ? null : 'move'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: submitted ? 'default' : 'pointer', background: mode === 'move' ? '#2a6e2a' : '#444', color: '#fff', border: mode === 'move' ? '2px solid #7fef7f' : '2px solid transparent', borderRadius: 4, fontSize: 11, opacity: submitted ? 0.4 : 1 }}
                 >
                   M Move
                 </button>
                 <button
-                  onClick={() => { setMode(m => m === 'support' ? null : 'support'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
-                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'support' ? '#b8860b' : '#444', color: '#fff', border: mode === 'support' ? '2px solid #ffd700' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
+                  onClick={() => { if (submitted) return; setMode(m => m === 'support' ? null : 'support'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: submitted ? 'default' : 'pointer', background: mode === 'support' ? '#b8860b' : '#444', color: '#fff', border: mode === 'support' ? '2px solid #ffd700' : '2px solid transparent', borderRadius: 4, fontSize: 11, opacity: submitted ? 0.4 : 1 }}
                 >
                   S Support
                 </button>
                 <button
-                  onClick={() => { setMode(m => m === 'convoy' ? null : 'convoy'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
-                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: 'pointer', background: mode === 'convoy' ? '#1a5c8a' : '#444', color: '#fff', border: mode === 'convoy' ? '2px solid #5bc8ff' : '2px solid transparent', borderRadius: 4, fontSize: 11 }}
+                  onClick={() => { if (submitted) return; setMode(m => m === 'convoy' ? null : 'convoy'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
+                  style={{ flex: 1, padding: '6px 4px', fontWeight: 'bold', cursor: submitted ? 'default' : 'pointer', background: mode === 'convoy' ? '#1a5c8a' : '#444', color: '#fff', border: mode === 'convoy' ? '2px solid #5bc8ff' : '2px solid transparent', borderRadius: 4, fontSize: 11, opacity: submitted ? 0.4 : 1 }}
                 >
                   C Convoy
                 </button>
@@ -444,10 +508,14 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                 {POWERS.map(power => {
                   const powerUnits = units.filter(u => u.power === power);
                   const scCount = Object.entries(owners).filter(([tid, p]) => p === power && SC_IDS.has(tid)).length;
+                  // In multiplayer, show whether this power has submitted orders
+                  const hasSubmitted = isMultiplayer && !!gameData?.orders?.[power];
                   return (
                     <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 6 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3 }}>
-                        {power} <span style={{ fontWeight: 400, color: '#555' }}>({scCount} SC)</span>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span>{power}</span>
+                        <span style={{ fontWeight: 400, color: '#555' }}>({scCount} SC)</span>
+                        {isMultiplayer && <span style={{ marginLeft: 'auto', fontSize: 9, color: hasSubmitted ? '#2a6e2a' : '#aaa', fontWeight: 700 }}>{hasSubmitted ? '✓' : '…'}</span>}
                       </div>
                       {powerUnits.map(u => {
                         const order = orders[u.id];
@@ -456,7 +524,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                             <span style={{ fontFamily: 'monospace', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {renderOrderText(u, orders, units)}
                             </span>
-                            {order && (
+                            {order && !submitted && (
                               <button
                                 onClick={() => cancelOrder(u.id)}
                                 style={{ marginLeft: 3, flexShrink: 0, fontSize: 9, padding: '1px 4px', cursor: 'pointer', border: '1px solid #ccc', background: 'none', borderRadius: 2, lineHeight: 1.6, color: '#888' }}

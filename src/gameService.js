@@ -41,6 +41,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  updateDoc,
   serverTimestamp,
 } from 'firebase/firestore';
 
@@ -163,6 +164,27 @@ export async function getGame(gameCode) {
   const snap = await getDoc(doc(db, 'games', gameCode.toUpperCase()));
   if (!snap.exists()) return null;
   return snap.data();
+}
+
+/**
+ * Submit orders for one power to Firestore.
+ * orders: { [unitId]: { type, dest?, target?, army? } }
+ */
+export async function submitOrders(gameCode, power, orders) {
+  await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
+    [`orders.${power}`]: orders,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Clear submitted orders for one power (e.g. to re-submit).
+ */
+export async function clearOrders(gameCode, power) {
+  await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
+    [`orders.${power}`]: null,
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /**
