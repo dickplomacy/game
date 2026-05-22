@@ -4,7 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders, writeResolution, submitRetreatOrders } from "./gameService";
+import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution } from "./gameService";
 
 // Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
 function displayId(id) {
@@ -135,6 +135,31 @@ const INITIAL_OWNERS = {
   arm: 'TURKEY', syr: 'TURKEY',
 };
 
+const HOME_SCS = {
+  AUSTRIA: ['bud', 'tri', 'vie'],
+  ENGLAND: ['edi', 'lon', 'lvp'],
+  FRANCE:  ['bre', 'mar', 'par'],
+  GERMANY: ['ber', 'kie', 'mun'],
+  ITALY:   ['nap', 'rom', 'ven'],
+  RUSSIA:  ['mos', 'sev', 'stp', 'war'],
+  TURKEY:  ['ank', 'con', 'smy'],
+};
+
+function computeAdjustments(ownerMap, unitList) {
+  const result = {};
+  POWERS.forEach(p => {
+    const scCount = Object.entries(ownerMap).filter(([tid, owner]) => owner === p && SC_IDS.has(tid)).length;
+    const unitCount = unitList.filter(u => u.power === p).length;
+    result[p] = scCount - unitCount;
+  });
+  return result;
+}
+
+function getAvailableBuildSCs(power, ownerMap, unitList) {
+  const occupied = new Set(unitList.map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
+  return (HOME_SCS[power] ?? []).filter(sc => ownerMap[sc] === power && !occupied.has(sc));
+}
+
 // Derive updated ownership from new unit positions (only updates occupied territories)
 function ownersFromUnits(prevOwners, newUnits) {
   const next = { ...prevOwners };
@@ -167,6 +192,10 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // Whether this player has submitted orders to Firestore this turn
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // winterPhase: null | { adjustments: {POWER: number}, orders: {POWER: {builds, disbands}} }
+  const [winterPhase, setWinterPhase] = useState(null);
+  // Local staging area for winter adjustment orders before submission
+  const [winterOrders, setWinterOrders] = useState({ builds: [], disbands: [] });
 
   useEffect(() => {
     getDoc(doc(db, "config", "ui")).then((snap) => {
@@ -187,6 +216,11 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       setRetreatPhase(gameData.retreatPhase
         ? { dislodged: gameData.retreatPhase.dislodged, retreatOrders: gameData.retreatPhase.retreatOrders ?? {} }
         : null);
+    }
+    // Sync winter phase from Firestore
+    if (gameData.winterPhase !== undefined) {
+      setWinterPhase(gameData.winterPhase ?? null);
+      if (!gameData.winterPhase) setWinterOrders({ builds: [], disbands: [] });
     }
     // Reset local orders when a new turn starts (orders cleared server-side)
     if (isMultiplayer && gameData.orders && Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
@@ -420,6 +454,44 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     await submitRetreatOrders(gameCode, myOrders);
   }
 
+  async function handleSubmitWinterOrders() {
+    if (!gameCode || !myPower || !winterPhase) return;
+    await submitWinterOrders(gameCode, myPower, winterOrders.builds, winterOrders.disbands);
+  }
+
+  async function resolveWinterMultiplayer() {
+    if (!gameData?.winterPhase || !gameCode) return;
+    const { adjustments, orders: wOrders } = gameData.winterPhase;
+    let newUnits = [...(gameData.units ?? units)];
+    POWERS.forEach(power => {
+      const adj = adjustments[power] ?? 0;
+      const powerOrders = wOrders?.[power];
+      if (adj < 0) {
+        const needed = Math.abs(adj);
+        const submitted = powerOrders?.disbands ?? [];
+        let toDisband = submitted.slice(0, needed);
+        if (toDisband.length < needed) {
+          const extra = newUnits.filter(u => u.power === power && !toDisband.includes(u.id));
+          toDisband = [...toDisband, ...extra.slice(0, needed - toDisband.length).map(u => u.id)];
+        }
+        newUnits = newUnits.filter(u => !(u.power === power && toDisband.includes(u.id)));
+      } else if (adj > 0 && powerOrders?.builds?.length > 0) {
+        const currentOwners = gameData.owners ?? owners;
+        const builds = powerOrders.builds.slice(0, adj);
+        builds.forEach(({ territory, type }) => {
+          const t = territories[territory];
+          if (!t?.unitCoord) return;
+          const occupied = newUnits.some(u => (u.id.includes('-') ? u.id.split('-')[0] : u.id) === territory);
+          if (!occupied && currentOwners[territory] === power) {
+            newUnits.push({ id: territory, type, power, x: t.unitCoord.x, y: t.unitCoord.y });
+          }
+        });
+      }
+    });
+    await writeWinterResolution(gameCode, newUnits, gameData.year ?? 1901);
+    resetMode();
+  }
+
   function submitRetreats() {
     if (!retreatPhase) return;
     const { dislodged, retreatOrders } = retreatPhase;
@@ -487,9 +559,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               <div style={{ overflowY: 'auto', flex: 1 }}>
                 {retreatPhase.dislodged.map(({ unit, retreatOptions }) => {
                   const chosenDest = retreatPhase.retreatOrders[unit.id];
-                  // In multiplayer, lock interaction for other powers' units
                   const canEdit = !isMultiplayer || (unit.power === myPower);
-                  // A unit is "locked" once submitted to Firestore
                   const lockedInFirestore = isMultiplayer && !!gameData?.retreatPhase?.retreatOrders?.[unit.id];
                   const interactive = canEdit && !lockedInFirestore;
                   return (
@@ -500,65 +570,88 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                         {retreatOptions.map(tid => (
-                          <button
-                            key={tid}
-                            onClick={() => { if (!interactive) return; setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: tid } })); }}
-                            style={{ padding: '4px 6px', cursor: interactive ? 'pointer' : 'default', fontSize: 11, textAlign: 'left', background: chosenDest === tid ? '#1a1a2e' : '#eee', color: chosenDest === tid ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3, fontWeight: chosenDest === tid ? 700 : 400 }}
-                          >
-                            → {displayId(tid)}
-                          </button>
+                          <button key={tid} onClick={() => { if (!interactive) return; setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: tid } })); }} style={{ padding: '4px 6px', cursor: interactive ? 'pointer' : 'default', fontSize: 11, textAlign: 'left', background: chosenDest === tid ? '#1a1a2e' : '#eee', color: chosenDest === tid ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3, fontWeight: chosenDest === tid ? 700 : 400 }}>→ {displayId(tid)}</button>
                         ))}
-                        {interactive && (
-                          <button
-                            onClick={() => setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: 'disband' } }))}
-                            style={{ padding: '4px 6px', cursor: 'pointer', fontSize: 11, textAlign: 'left', background: chosenDest === 'disband' ? '#b22' : '#eee', color: chosenDest === 'disband' ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3 }}
-                          >
-                            ✕ Disband
-                          </button>
-                        )}
+                        {interactive && (<button onClick={() => setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: 'disband' } }))} style={{ padding: '4px 6px', cursor: 'pointer', fontSize: 11, textAlign: 'left', background: chosenDest === 'disband' ? '#b22' : '#eee', color: chosenDest === 'disband' ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3 }}>✕ Disband</button>)}
                       </div>
                     </div>
                   );
                 })}
               </div>
-              {/* Retreat action buttons */}
               {isMultiplayer ? (
                 isAdmin ? (
-                  <button
-                    onClick={resolveRetreatsMultiplayer}
-                    style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
-                  >
-                    ▶ Resolve Retreats
-                  </button>
+                  <button onClick={resolveRetreatsMultiplayer} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}>▶ Resolve Retreats</button>
                 ) : (() => {
                   const myDislodged = retreatPhase.dislodged.filter(d => d.unit.power === myPower);
-                  if (myDislodged.length === 0) {
-                    return <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '6px 0' }}>Waiting for retreat resolution…</div>;
-                  }
+                  if (myDislodged.length === 0) return <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '6px 0' }}>Waiting for retreat resolution…</div>;
                   const retreatSubmitted = myDislodged.every(d => gameData?.retreatPhase?.retreatOrders?.[d.unit.id]);
-                  if (retreatSubmitted) {
-                    return <div style={{ padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>✓ Retreat Submitted</div>;
-                  }
+                  if (retreatSubmitted) return <div style={{ padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>✓ Retreat Submitted</div>;
                   const allChosen = myDislodged.every(d => retreatPhase.retreatOrders[d.unit.id]);
-                  return (
-                    <button
-                      onClick={handleSubmitRetreatsMultiplayer}
-                      disabled={!allChosen}
-                      style={{ padding: '7px 6px', fontWeight: 'bold', cursor: allChosen ? 'pointer' : 'default', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: allChosen ? 1 : 0.5 }}
-                    >
-                      ▶ Submit Retreat
-                    </button>
-                  );
+                  return <button onClick={handleSubmitRetreatsMultiplayer} disabled={!allChosen} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: allChosen ? 'pointer' : 'default', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: allChosen ? 1 : 0.5 }}>▶ Submit Retreat</button>;
                 })()
               ) : (
-                <button
-                  onClick={submitRetreats}
-                  disabled={retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id])}
-                  style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id]) ? 0.5 : 1 }}
-                >
-                  ▶ Submit Retreats
-                </button>
+                <button onClick={submitRetreats} disabled={retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id])} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id]) ? 0.5 : 1 }}>▶ Submit Retreats</button>
               )}
+            </>
+          ) : winterPhase && isMultiplayer ? (
+            <>
+              <div style={{ fontWeight: 700, fontSize: 12, color: '#4a0080', letterSpacing: '0.03em', padding: '4px 0' }}>❄ WINTER ADJUSTMENTS</div>
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {POWERS.map(power => {
+                  const adj = winterPhase.adjustments?.[power] ?? 0;
+                  const submitted = !!winterPhase.orders?.[power];
+                  const isMe = power === myPower;
+                  const availSCs = getAvailableBuildSCs(power, owners, units);
+                  return (
+                    <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], marginBottom: 3, display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <span>{power}</span>
+                        <span style={{ fontWeight: 400, color: adj > 0 ? '#2a6e2a' : adj < 0 ? '#b22' : '#888' }}>{adj > 0 ? `+${adj}` : adj < 0 ? String(adj) : '±0'}</span>
+                        {submitted && <span style={{ color: '#2a6e2a', marginLeft: 'auto', fontWeight: 700 }}>✓</span>}
+                      </div>
+                      {isMe && !submitted && adj > 0 && (
+                        <div>
+                          {availSCs.length === 0 && <div style={{ fontSize: 10, color: '#888' }}>No available home SCs</div>}
+                          {availSCs.map(sc => {
+                            const existing = winterOrders.builds.find(b => b.territory === sc);
+                            const canFleet = territories[sc]?.type !== 'land';
+                            const atLimit = !existing && winterOrders.builds.length >= adj;
+                            return (
+                              <div key={sc} style={{ display: 'flex', gap: 3, alignItems: 'center', marginBottom: 2 }}>
+                                <span style={{ fontSize: 10, width: 28 }}>{displayId(sc)}</span>
+                                {['A', canFleet ? 'F' : null].filter(Boolean).map(t => (
+                                  <button key={t} onClick={() => { if (atLimit && existing?.type !== t) return; setWinterOrders(prev => { const without = prev.builds.filter(b => b.territory !== sc); return existing?.type === t ? { ...prev, builds: without } : { ...prev, builds: [...without, { territory: sc, type: t }] }; }); }} style={{ padding: '2px 5px', fontSize: 10, background: existing?.type === t ? '#1a1a2e' : '#eee', color: existing?.type === t ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 2, cursor: (atLimit && existing?.type !== t) ? 'default' : 'pointer', opacity: (atLimit && existing?.type !== t) ? 0.4 : 1 }}>{t}</button>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {isMe && !submitted && adj < 0 && (
+                        <div>
+                          <div style={{ fontSize: 10, color: '#b22', marginBottom: 2 }}>Disband {Math.abs(adj)}</div>
+                          {units.filter(u => u.power === power).map(u => {
+                            const sel = winterOrders.disbands.includes(u.id);
+                            const atLimit = !sel && winterOrders.disbands.length >= Math.abs(adj);
+                            return <button key={u.id} onClick={() => { if (atLimit) return; setWinterOrders(prev => ({ ...prev, disbands: sel ? prev.disbands.filter(id => id !== u.id) : [...prev.disbands, u.id] })); }} style={{ display: 'block', width: '100%', padding: '2px 5px', fontSize: 10, textAlign: 'left', background: sel ? '#b22' : '#eee', color: sel ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 2, marginBottom: 2, cursor: atLimit ? 'default' : 'pointer', opacity: atLimit ? 0.4 : 1 }}>{u.type} {displayId(u.id)}</button>;
+                          })}
+                        </div>
+                      )}
+                      {isMe && !submitted && adj === 0 && <div style={{ fontSize: 10, color: '#888' }}>No adjustment</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              {isAdmin ? (
+                <button onClick={resolveWinterMultiplayer} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#4a0080', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}>▶ Resolve Winter</button>
+              ) : myPower && (() => {
+                const adj = winterPhase.adjustments?.[myPower] ?? 0;
+                const submitted = !!winterPhase.orders?.[myPower];
+                if (submitted) return <div style={{ padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>✓ Adjustment Submitted</div>;
+                if (adj === 0) return <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '6px 0' }}>Waiting for winter resolution…</div>;
+                const canSubmit = adj < 0 ? winterOrders.disbands.length === Math.abs(adj) : true;
+                return <button onClick={handleSubmitWinterOrders} disabled={!canSubmit} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: canSubmit ? 'pointer' : 'default', background: '#4a0080', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: canSubmit ? 1 : 0.5 }}>▶ Submit Adjustments</button>;
+              })()}
             </>
           ) : (
             <>

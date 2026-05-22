@@ -211,22 +211,23 @@ export async function submitRetreatOrders(gameCode, retreatOrdersMap) {
 
 /**
  * Write the result of order resolution back to Firestore.
- * - newUnits: unit array after moves applied
- * - newOwners: territory ownership map after moves
- * - retreatData: null | { dislodged: [{unit, retreatOptions}], retreatOrders: {} }
- *   If null, advance to the next phase.
+ * - retreatData: null | { dislodged, retreatOrders } — if set, enter retreat phase
+ * - winterData: null | { adjustments, orders } — if set (fall only), enter winter phase
  */
-export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear) {
+export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null) {
   let nextPhase, nextYear;
   if (retreatData) {
-    // Enter retreat sub-phase
     nextPhase = currentPhase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
     nextYear = currentYear;
   } else if (currentPhase === 'spring-move' || currentPhase === 'spring-retreat') {
     nextPhase = 'fall-move';
     nextYear = currentYear;
+  } else if (winterData) {
+    // fall-move or fall-retreat → winter
+    nextPhase = 'winter';
+    nextYear = currentYear;
   } else {
-    // fall-move or fall-retreat → next spring
+    // fall-move or fall-retreat → spring (skip winter)
     nextPhase = 'spring-move';
     nextYear = currentYear + 1;
   }
@@ -238,6 +239,33 @@ export async function writeResolution(gameCode, newUnits, newOwners, retreatData
     phase: nextPhase,
     year: nextYear,
     retreatPhase: retreatData ?? null,
+    winterPhase: nextPhase === 'winter' ? winterData : null,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Submit winter adjustment orders for one power.
+ * builds: [{ territory, type }]
+ * disbands: [unitId]
+ */
+export async function submitWinterOrders(gameCode, power, builds, disbands) {
+  await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
+    [`winterPhase.orders.${power}`]: { builds, disbands },
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Finalise winter: write new unit array and advance to next spring.
+ */
+export async function writeWinterResolution(gameCode, newUnits, currentYear) {
+  await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
+    units: newUnits,
+    orders: {},
+    phase: 'spring-move',
+    year: currentYear + 1,
+    winterPhase: null,
     updatedAt: serverTimestamp(),
   });
 }
