@@ -1,0 +1,6 @@
+<!-- Imperial Germany (Kaiserreich): black-white-red horizontal tricolor -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40">
+  <rect width="60" height="13.34" fill="#000"/>
+  <rect y="13.34" width="60" height="13.32" fill="#fff"/>
+  <rect y="26.66" width="60" height="13.34" fill="#CC0000"/>
+</svg>

@@ -1,0 +1,6 @@
+<!-- Russian Empire: white-blue-red horizontal tricolor -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40">
+  <rect width="60" height="13.34" fill="#fff"/>
+  <rect y="13.34" width="60" height="13.32" fill="#003DA5"/>
+  <rect y="26.66" width="60" height="13.34" fill="#CC0000"/>
+</svg>
