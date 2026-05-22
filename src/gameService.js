@@ -196,3 +196,36 @@ export function getRoleForToken(game, token) {
   const entry = Object.entries(game.players).find(([, t]) => t === token);
   return entry ? entry[0] : null;
 }
+
+/**
+ * Write the result of order resolution back to Firestore.
+ * - newUnits: unit array after moves applied
+ * - newOwners: territory ownership map after moves
+ * - retreatData: null | { dislodged: [{unit, retreatOptions}], retreatOrders: {} }
+ *   If null, advance to the next phase.
+ */
+export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear) {
+  let nextPhase, nextYear;
+  if (retreatData) {
+    // Enter retreat sub-phase
+    nextPhase = currentPhase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
+    nextYear = currentYear;
+  } else if (currentPhase === 'spring-move') {
+    nextPhase = 'fall-move';
+    nextYear = currentYear;
+  } else {
+    // fall-move (or anything else) → next spring
+    nextPhase = 'spring-move';
+    nextYear = currentYear + 1;
+  }
+
+  await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
+    units: newUnits,
+    owners: newOwners,
+    orders: {},
+    phase: nextPhase,
+    year: nextYear,
+    retreatPhase: retreatData ?? null,
+    updatedAt: serverTimestamp(),
+  });
+}

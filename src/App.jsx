@@ -4,7 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders } from "./gameService";
+import { submitOrders, clearOrders, writeResolution } from "./gameService";
 
 // Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
 function displayId(id) {
@@ -175,13 +175,23 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     });
   }, []);
 
-  // Sync units and owners from Firestore whenever the server state changes
+  // Sync units, owners, and retreatPhase from Firestore whenever the server state changes
   useEffect(() => {
     if (!gameData) return;
     if (gameData.units) setUnits(gameData.units);
     if (gameData.owners) setOwners(gameData.owners);
     // Reset submitted flag when orders for our power are cleared (new turn)
     if (myPower && !gameData.orders?.[myPower]) setSubmitted(false);
+    // Sync retreat phase from Firestore (null clears local retreat phase too)
+    if (gameData.retreatPhase !== undefined) {
+      setRetreatPhase(gameData.retreatPhase
+        ? { dislodged: gameData.retreatPhase.dislodged, retreatOrders: gameData.retreatPhase.retreatOrders ?? {} }
+        : null);
+    }
+    // Reset local orders when a new turn starts (orders cleared server-side)
+    if (isMultiplayer && gameData.orders && Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
+      setOrders({});
+    }
   }, [gameData]);
 
   useEffect(() => {
@@ -313,30 +323,55 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     setOrders(prev => { const next = { ...prev }; delete next[unitId]; return next; });
   }
 
-  function resolveOrders() {
-    const result = resolve(units, orders);
-    // Partition dislodged into needs-input vs auto-resolved
+  function runResolver(unitList, orderMap) {
+    const result = resolve(unitList, orderMap);
     const pending = result.dislodged.filter(d => d.retreatOptions.length > 1);
     const autoOrders = {};
     result.dislodged.forEach(d => {
       if (d.retreatOptions.length === 1) autoOrders[d.unit.id] = d.retreatOptions[0];
       else if (d.retreatOptions.length === 0) autoOrders[d.unit.id] = 'disband';
     });
+    return { result, pending, autoOrders };
+  }
+
+  function resolveOrders() {
+    // Local (non-multiplayer) resolution
+    const { result, pending, autoOrders } = runResolver(units, orders);
     if (pending.length > 0) {
-      // Some dislodged units need player input — enter retreat phase
       setUnits(result.units);
       setOwners(prev => ownersFromUnits(prev, result.units));
       setRetreatPhase({ dislodged: pending, retreatOrders: autoOrders });
     } else {
-      // All retreats are auto-resolved; apply them immediately
       applyRetreats(result.units, result.dislodged, autoOrders);
     }
     setOrders({});
     resetMode();
   }
 
-  function applyRetreats(currentUnits, dislodged, retreatOrders) {
-    // Handle conflicts: two units retreating to same territory — both disband
+  async function resolveOrdersMultiplayer() {
+    if (!gameData || !gameCode) return;
+    // Flatten all per-power orders into a single { unitId: order } map
+    const flatOrders = {};
+    Object.values(gameData.orders ?? {}).forEach(powerOrders => {
+      if (powerOrders) Object.assign(flatOrders, powerOrders);
+    });
+    const { result, pending, autoOrders } = runResolver(gameData.units ?? units, flatOrders);
+    const newOwners = ownersFromUnits(owners, result.units);
+    if (pending.length > 0) {
+      // Retreat phase needed — write to Firestore; onSnapshot will sync UI
+      const retreatData = { dislodged: pending, retreatOrders: autoOrders };
+      await writeResolution(gameCode, result.units, newOwners, retreatData, gameData.phase, gameData.year);
+    } else {
+      // Auto-resolve all retreats immediately
+      const { newUnits } = applyRetreatsCalc(result.units, result.dislodged, autoOrders);
+      const finalOwners = ownersFromUnits(newOwners, newUnits);
+      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year);
+    }
+    resetMode();
+  }
+
+  // Pure calculation — returns newUnits without touching state (used by both local and multiplayer paths)
+  function applyRetreatsCalc(currentUnits, dislodged, retreatOrders) {
     const destinations = Object.entries(retreatOrders)
       .filter(([, d]) => d !== 'disband')
       .map(([, d]) => d);
@@ -346,11 +381,16 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     const newUnits = [...currentUnits];
     dislodged.forEach(({ unit }) => {
       const dest = retreatOrders[unit.id];
-      if (!dest || dest === 'disband' || conflicts.has(dest)) return; // disband
+      if (!dest || dest === 'disband' || conflicts.has(dest)) return;
       const t = territories[dest] ?? territories[dest.split('-')[0]];
       if (!t?.unitCoord) return;
       newUnits.push({ ...unit, id: dest, x: t.unitCoord.x, y: t.unitCoord.y });
     });
+    return { newUnits };
+  }
+
+  function applyRetreats(currentUnits, dislodged, retreatOrders) {
+    const { newUnits } = applyRetreatsCalc(currentUnits, dislodged, retreatOrders);
     setUnits(newUnits);
     setOwners(prev => ownersFromUnits(prev, newUnits));
     setRetreatPhase(null);
@@ -403,9 +443,16 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     return 'Observer mode — select an order type to begin';
   }
 
+  const phaseLabel = gameData
+    ? `${gameData.phase?.replace('-', ' ').replace(/\b\w/g, c => c.toUpperCase())} ${gameData.year}`
+    : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', fontFamily: 'system-ui, sans-serif', background: '#fff' }}>
-      <h1 style={{ textAlign: 'center', margin: '0.5rem 0 0', fontSize: '2rem', flexShrink: 0, userSelect: 'none' }}>{title}</h1>
+      <div style={{ textAlign: 'center', margin: '0.5rem 0 0', flexShrink: 0, userSelect: 'none', lineHeight: 1.1 }}>
+        <h1 style={{ margin: 0, fontSize: '2rem' }}>{title}</h1>
+        {phaseLabel && <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>{phaseLabel}</div>}
+      </div>
       <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: '0.75rem', padding: '0.5rem 0.75rem' }}>
 
         {/* Orders panel */}
@@ -455,7 +502,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               {/* Resolve button: local mode always shows it; multiplayer only for admin */}
               {(!isMultiplayer || isAdmin) && (
                 <button
-                  onClick={resolveOrders}
+                  onClick={isMultiplayer ? resolveOrdersMultiplayer : resolveOrders}
                   style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
                 >
                   ▶ Resolve Orders
