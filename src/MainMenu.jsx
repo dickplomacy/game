@@ -8,6 +8,7 @@ const FLAGS = Object.fromEntries(
 const btnStyle = {
   display: 'block',
   width: '100%',
+  boxSizing: 'border-box',
   padding: '11px 18px',
   marginBottom: 10,
   fontFamily: 'system-ui, sans-serif',
@@ -65,28 +66,27 @@ export default function MainMenu() {
           Europe, 1901
         </p>
 
-        {/* Nation flags */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: '2rem' }}>
-          {POWERS.map(p => (
-            <img
-              key={p}
-              src={FLAGS[p]}
-              alt={p}
-              title={p.charAt(0) + p.slice(1).toLowerCase()}
-              style={{
-                height: 22,
-                width: 33,
-                objectFit: 'cover',
-                borderRadius: 2,
-                boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-                border: '1px solid rgba(0,0,0,0.2)',
-              }}
-            />
-          ))}
-        </div>
+        {/* Nation flags + buttons — share the same width so they align */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', width: 280 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+            {POWERS.map(p => (
+              <img
+                key={p}
+                src={FLAGS[p]}
+                alt={p}
+                title={p.charAt(0) + p.slice(1).toLowerCase()}
+                style={{
+                  height: 22,
+                  width: 33,
+                  objectFit: 'cover',
+                  borderRadius: 2,
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                  border: '1px solid rgba(0,0,0,0.2)',
+                }}
+              />
+            ))}
+          </div>
 
-        {/* Menu buttons */}
-        <div style={{ width: 240 }}>
           <Link to="/new" style={btnStyle}>▶ New Game</Link>
           <Link to="/join" style={btnStyle}>▶ Join Game</Link>
           <Link to="/about" style={btnStyle}>▶ About</Link>
