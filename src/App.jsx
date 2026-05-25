@@ -214,6 +214,14 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // Local staging area for winter adjustment orders before submission
   const [winterOrders, setWinterOrders] = useState({ builds: [], disbands: [] });
 
+  // Responsive layout: column on narrow screens
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
   // Sync units, owners, and retreatPhase from Firestore whenever the server state changes
   useEffect(() => {
     if (!gameData) return;
@@ -598,7 +606,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
           </div>
         )}
       </div>
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: '0.75rem', padding: '0.5rem 0.75rem', position: 'relative' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : '0.75rem', padding: '0.5rem 0.75rem', position: 'relative' }}>
 
         {/* Winner overlay */}
         {gameData?.winner && (
@@ -612,7 +620,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         )}
 
         {/* Orders panel */}
-        <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ width: isMobile ? '100%' : 210, flexShrink: 0, order: isMobile ? 2 : 0, flex: isMobile ? '0 0 auto' : undefined, maxHeight: isMobile ? '42vh' : undefined, overflowY: isMobile ? 'auto' : undefined, borderTop: isMobile ? '1px solid #e0e0e0' : undefined, paddingTop: isMobile ? 6 : undefined, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {retreatPhase ? (
             <>
               <div style={{ fontWeight: 700, fontSize: 12, color: '#b22', letterSpacing: '0.03em', padding: '4px 0' }}>⚠ RETREAT PHASE</div>
@@ -808,11 +816,11 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         </div>
 
         {/* Map */}
-        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: isMobile ? 'none' : 1, order: isMobile ? 1 : 0, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ fontSize: 12, color: mode === 'support' ? '#b8860b' : mode === 'convoy' ? '#1a5c8a' : mode === 'move' ? '#2a6e2a' : '#999', marginBottom: 4, minHeight: '1.4em', fontWeight: mode && mode !== 'move' ? 600 : 400 }}>
             {hintText()}
           </div>
-          <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+          <div style={{ flex: isMobile ? 'none' : 1, minHeight: 0, position: 'relative', aspectRatio: isMobile ? '1835/1360' : undefined }}>
             <DipMap
               units={units}
               orders={orders}
