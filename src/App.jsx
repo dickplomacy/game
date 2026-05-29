@@ -3,6 +3,7 @@ import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
 import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution } from "./gameService";
+import { checkWinner, POWERS, SC_IDS } from "./winCondition";
 
 // Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
 function displayId(id) {
@@ -47,10 +48,6 @@ function getDisplayMoves(unit) {
   });
   return result;
 }
-
-const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'];
-
-const SC_IDS = new Set(Object.values(territories).filter(t => t.supplyCenter && !t.id.includes('-')).map(t => t.id));
 
 const POWER_COLOR = {
   AUSTRIA: '#b22',
@@ -164,11 +161,6 @@ function getAvailableBuildSCs(power, ownerMap, unitList) {
   return (HOME_SCS[power] ?? []).filter(sc => ownerMap[sc] === power && !occupied.has(sc));
 }
 
-function checkWinner(ownerMap) {
-  return POWERS.find(p =>
-    Object.entries(ownerMap).filter(([tid, owner]) => owner === p && SC_IDS.has(tid)).length >= 18
-  ) ?? null;
-}
 
 function buildWinterData(ownerMap, unitList) {
   const adjustments = computeAdjustments(ownerMap, unitList);
