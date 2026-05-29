@@ -43,10 +43,10 @@ export default function NewGame() {
 
   if (game) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif', background: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, sans-serif', background: '#fff', alignItems: 'center', justifyContent: 'center', overflow: 'auto' }}>
         <h1 style={{ fontSize: '2rem', marginBottom: 4, userSelect: 'none' }}>Game Created</h1>
         <div style={{ fontSize: 13, color: '#555', marginBottom: 24 }}>Code: <strong>{game.code}</strong> · {game.phase} {game.year}</div>
-        <div style={{ width: 420 }}>
+        <div style={{ width: '100%', maxWidth: 420, padding: '0 16px', boxSizing: 'border-box' }}>
           <div style={{ fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: '#888', textTransform: 'uppercase', marginBottom: 8 }}>Player Links — share each link with the respective player</div>
           {['ADMIN', ...POWERS].map(role => (
             <div key={role} style={{ display: 'flex', alignItems: 'center', marginBottom: 6, gap: 8 }}>
