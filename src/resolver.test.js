@@ -482,3 +482,132 @@ describe('edge cases', () => {
   });
 });
 
+// ── Multi-hop convoy ─────────────────────────────────────────────────────────
+
+describe('multi-hop convoy', () => {
+  it('two-hop convoy: army crosses two seas to non-adjacent destination', () => {
+    // A smy → nap via F aeg + F ion.
+    // aeg adj smy ✓, aeg adj ion ✓, ion adj nap ✓
+    // Neither aeg alone (not adj nap) nor ion alone (not adj smy) can do it in one hop.
+    const { units } = resolve(
+      [A('smy', 'TURKEY'), F('aeg', 'TURKEY'), F('ion', 'TURKEY')],
+      {
+        smy: { type: 'move', dest: 'nap' },
+        aeg: { type: 'convoy', army: 'smy', dest: 'nap' },
+        ion: { type: 'convoy', army: 'smy', dest: 'nap' },
+      }
+    );
+    expect(at(units, 'nap')?.type).toBe('A');
+    expect(at(units, 'smy')).toBeFalsy();
+  });
+
+  it('two-hop convoy fails if one fleet has no convoy order', () => {
+    // Without ion's convoy order the chain is broken — smy stays.
+    const { units } = resolve(
+      [A('smy', 'TURKEY'), F('aeg', 'TURKEY'), F('ion', 'TURKEY')],
+      {
+        smy: { type: 'move', dest: 'nap' },
+        aeg: { type: 'convoy', army: 'smy', dest: 'nap' },
+        // ion has no convoy order — chain broken
+      }
+    );
+    expect(at(units, 'smy')).toBeTruthy();
+    expect(at(units, 'nap')).toBeFalsy();
+  });
+});
+
+// ── Convoyed army cuts support ───────────────────────────────────────────────
+
+describe('convoyed army cuts support', () => {
+  it('convoyed army cuts support, changing the resolution outcome', () => {
+    // ruh (GERMANY, str 2 supported by kie) attacks hol.
+    // bel (ENGLAND) provides hold support for hol → hol str 2 → attack would fail.
+    // A yor (FRANCE) is convoyed via F nth to bel, cutting bel's support.
+    // yor fails to dislodge bel (str 1 vs 1), but the attack still cuts the support.
+    // With support cut: hol str 1, ruh str 2 > 1 → ruh dislodges hol.
+    // ruh adj hol ✓, kie adj hol ✓, bel adj hol ✓ (hold support), yor not army-adj bel ✓
+    const { units, dislodged } = resolve(
+      [A('ruh', 'GERMANY'), A('kie', 'GERMANY'), A('hol', 'ENGLAND'), A('bel', 'ENGLAND'), A('yor', 'FRANCE'), F('nth', 'FRANCE')],
+      {
+        ruh: { type: 'move', dest: 'hol' },
+        kie: { type: 'support', target: 'ruh', dest: 'hol' },
+        bel: { type: 'support', target: 'hol' },           // hold support, no dest
+        yor: { type: 'move', dest: 'bel' },                // convoy via nth
+        nth: { type: 'convoy', army: 'yor', dest: 'bel' },
+      }
+    );
+    expect(dislodged.find(d => d.unit.id === 'hol')).toBeTruthy(); // hol dislodged
+    expect(at(units, 'yor')).toBeTruthy(); // yor stayed at yor (failed to take bel)
+  });
+
+  it('without the convoyed army, the same attack fails (support holds)', () => {
+    // Identical setup minus yor and nth. bel's support is intact → hol str 2 → ruh fails.
+    const { units, dislodged } = resolve(
+      [A('ruh', 'GERMANY'), A('kie', 'GERMANY'), A('hol', 'ENGLAND'), A('bel', 'ENGLAND')],
+      {
+        ruh: { type: 'move', dest: 'hol' },
+        kie: { type: 'support', target: 'ruh', dest: 'hol' },
+        bel: { type: 'support', target: 'hol' },
+      }
+    );
+    expect(at(units, 'hol')?.power).toBe('ENGLAND'); // hol holds
+    expect(dislodged.length).toBe(0);
+  });
+});
+
+// ── Beleaguered garrison ─────────────────────────────────────────────────────
+
+describe('beleaguered garrison', () => {
+  it('two equal-strength attacks on same territory: neither dislodges', () => {
+    // A vie (FRANCE, str 2 supported by gal) and A ser (GERMANY, str 2 supported by rum)
+    // both attack bud (ENGLAND, str 1). Each alone would dislodge — but equal rivals means
+    // neither succeeds and bud holds.
+    // gal adj bud ✓, gal adj vie ✓; rum adj bud ✓, rum adj ser ✓
+    const { units, dislodged } = resolve(
+      [A('bud', 'ENGLAND'), A('vie', 'FRANCE'), A('gal', 'FRANCE'), A('ser', 'GERMANY'), A('rum', 'GERMANY')],
+      {
+        vie: { type: 'move', dest: 'bud' },
+        gal: { type: 'support', target: 'vie', dest: 'bud' },
+        ser: { type: 'move', dest: 'bud' },
+        rum: { type: 'support', target: 'ser', dest: 'bud' },
+      }
+    );
+    expect(at(units, 'bud')?.power).toBe('ENGLAND');
+    expect(dislodged.length).toBe(0);
+  });
+
+  it('single supported attack of strength 2 does dislodge (contrast with beleaguered garrison)', () => {
+    // Control: confirms bud WOULD fall to a lone str-2 attack, making the garrison test meaningful.
+    const { dislodged } = resolve(
+      [A('bud', 'ENGLAND'), A('vie', 'FRANCE'), A('gal', 'FRANCE')],
+      {
+        vie: { type: 'move', dest: 'bud' },
+        gal: { type: 'support', target: 'vie', dest: 'bud' },
+      }
+    );
+    expect(dislodged.find(d => d.unit.id === 'bud')).toBeTruthy();
+  });
+});
+
+// ── Known limitations ────────────────────────────────────────────────────────
+
+describe('known limitations', () => {
+  it.skip('convoy fails if the convoying fleet is dislodged (not yet implemented)', () => {
+    // A yor (ENGLAND) → nwy via F nth (ENGLAND).
+    // F ska (FRANCE) supported by F nrg (FRANCE) dislodges nth.
+    // Per standard Diplomacy rules, the convoy should fail and yor should stay.
+    // Current behaviour: yor still reaches nwy (disruption not implemented).
+    const { units } = resolve(
+      [A('yor', 'ENGLAND'), F('nth', 'ENGLAND'), F('ska', 'FRANCE'), F('nrg', 'FRANCE')],
+      {
+        yor: { type: 'move', dest: 'nwy' },
+        nth: { type: 'convoy', army: 'yor', dest: 'nwy' },
+        ska: { type: 'move', dest: 'nth' },
+        nrg: { type: 'support', target: 'ska', dest: 'nth' },
+      }
+    );
+    expect(at(units, 'yor')).toBeTruthy();  // yor did NOT reach nwy
+    expect(at(units, 'nwy')).toBeFalsy();
+  });
+});
+
