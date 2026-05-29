@@ -56,11 +56,11 @@ export default function JoinGame() {
 
   const containerStyle = {
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    minHeight: '100vh', fontFamily: 'system-ui, sans-serif', background: '#f8f8f8', padding: '2rem',
+    minHeight: '100vh', fontFamily: 'system-ui, sans-serif', background: '#f8f8f8', padding: '1rem',
   };
   const cardStyle = {
-    background: '#fff', borderRadius: 10, padding: '2rem 2.5rem',
-    boxShadow: '0 4px 24px rgba(0,0,0,0.1)', width: '100%', maxWidth: 380,
+    background: '#fff', borderRadius: 10, padding: '2rem 1.5rem',
+    boxShadow: '0 4px 24px rgba(0,0,0,0.1)', width: '100%', maxWidth: 380, boxSizing: 'border-box',
   };
 
   return (
