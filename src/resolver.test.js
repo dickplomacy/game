@@ -610,3 +610,136 @@ describe('known limitations', () => {
   });
 });
 
+// ── Szykman paradox ──────────────────────────────────────────────────────────
+
+describe('Szykman paradox', () => {
+  it('circular convoy dependency resolves in favour of the convoy', () => {
+    // A yor (ENGLAND) → nwy via F nth (ENGLAND).
+    // F nwy (FRANCE) S ska → nth: supports the attack on the convoying fleet.
+    // F ska (FRANCE) → nth: would dislodge nth (str 2) if nwy's support holds.
+    //
+    // Circular dependency:
+    //   if convoy active  → yor attacks nwy → cuts nwy's support → ska str 1 → nth survives → convoy stays active ✓
+    //   if convoy broken  → nwy support intact → ska str 2 > 1 → nth dislodged → convoy fails ✓
+    // Both are self-consistent; Szykman rule: convoy wins.
+    // Our fixpoint starts with the convoy active, so it naturally finds the consistent solution.
+    //
+    // yor NOT army-adj nwy ✓ (needs convoy); nth adj yor ✓, nth adj nwy ✓
+    // nwy adj ska ✓, nwy adj nth ✓ (nwy can support ska → nth)
+    const { units, dislodged } = resolve(
+      [A('yor', 'ENGLAND'), F('nth', 'ENGLAND'), F('nwy', 'FRANCE'), F('ska', 'FRANCE')],
+      {
+        yor: { type: 'move', dest: 'nwy' },
+        nth: { type: 'convoy', army: 'yor', dest: 'nwy' },
+        nwy: { type: 'support', target: 'ska', dest: 'nth' },
+        ska: { type: 'move', dest: 'nth' },
+      }
+    );
+    expect(at(units, 'nth')?.power).toBe('ENGLAND'); // nth survived — convoy chain intact
+    expect(at(units, 'ska')?.power).toBe('FRANCE');  // ska failed (support was cut)
+    expect(dislodged.length).toBe(0);
+  });
+});
+
+// ── Alternate-route convoy ───────────────────────────────────────────────────
+
+describe('alternate-route convoy', () => {
+  it('convoy succeeds via alternate route when primary fleet is dislodged', () => {
+    // A edi (ENGLAND) → nwy via F nth (primary) AND F nrg (alternate).
+    // nrg: fleet adj: [bar, cly, edi, nat, nwy, nth] → nrg adj edi ✓, nrg adj nwy ✓
+    // F ska (FRANCE) supported by F den dislodges nth → primary path broken.
+    // den fleet adj: [bal, hel, kie, nth, ska, swe] → den adj nth ✓, den adj ska ✓
+    // F nrg still intact → alternate chain found → edi still arrives at nwy.
+    // edi NOT army-adj nwy ✓ (edi army adj: cly, lvp, yor — not nwy)
+    const { units, dislodged } = resolve(
+      [A('edi', 'ENGLAND'), F('nth', 'ENGLAND'), F('nrg', 'ENGLAND'),
+       F('ska', 'FRANCE'), F('den', 'FRANCE')],
+      {
+        edi: { type: 'move', dest: 'nwy' },
+        nth: { type: 'convoy', army: 'edi', dest: 'nwy' },
+        nrg: { type: 'convoy', army: 'edi', dest: 'nwy' },
+        ska: { type: 'move', dest: 'nth' },
+        den: { type: 'support', target: 'ska', dest: 'nth' },
+      }
+    );
+    expect(at(units, 'nwy')?.power).toBe('ENGLAND');              // edi arrived via nrg
+    expect(dislodged.find(d => d.unit.id === 'nth')).toBeTruthy(); // nth was dislodged
+    expect(at(units, 'nrg')?.power).toBe('ENGLAND');              // nrg intact
+  });
+});
+
+// ── Units count invariant ────────────────────────────────────────────────────
+
+describe('units count invariant', () => {
+  it('units.length + dislodged.length === initial units.length', () => {
+    // After any resolution, no unit is created or destroyed — only moved or dislodged.
+    const scenarios = [
+      // Single dislodgement
+      {
+        initial: [A('yor'), A('wal'), A('lon', 'FRANCE')],
+        orders: {
+          yor: { type: 'move', dest: 'lon' },
+          wal: { type: 'support', target: 'yor', dest: 'lon' },
+        },
+      },
+      // Beleaguered garrison — no dislodgement
+      {
+        initial: [A('bud', 'ENGLAND'), A('vie', 'FRANCE'), A('gal', 'FRANCE'), A('ser', 'GERMANY'), A('rum', 'GERMANY')],
+        orders: {
+          vie: { type: 'move', dest: 'bud' },
+          gal: { type: 'support', target: 'vie', dest: 'bud' },
+          ser: { type: 'move', dest: 'bud' },
+          rum: { type: 'support', target: 'ser', dest: 'bud' },
+        },
+      },
+      // Convoy with disruption
+      {
+        initial: [A('yor', 'ENGLAND'), F('nth', 'ENGLAND'), F('ska', 'FRANCE'), F('nrg', 'FRANCE')],
+        orders: {
+          yor: { type: 'move', dest: 'nwy' },
+          nth: { type: 'convoy', army: 'yor', dest: 'nwy' },
+          ska: { type: 'move', dest: 'nth' },
+          nrg: { type: 'support', target: 'ska', dest: 'nth' },
+        },
+      },
+    ];
+
+    for (const { initial, orders } of scenarios) {
+      const { units, dislodged } = resolve(initial, orders);
+      expect(units.length + dislodged.length).toBe(initial.length);
+    }
+  });
+});
+
+// ── Void orders ──────────────────────────────────────────────────────────────
+
+describe('void orders', () => {
+  it('orders for non-existent units are silently ignored', () => {
+    // Orders reference 'par' and 'ber' which are not in the units array.
+    // Only A lon should resolve; it moves normally.
+    const { units, dislodged } = resolve(
+      [A('lon')],
+      {
+        lon: { type: 'move', dest: 'wal' },
+        par: { type: 'move', dest: 'bur' },       // non-existent unit
+        ber: { type: 'support', target: 'par', dest: 'bur' }, // non-existent unit
+      }
+    );
+    expect(at(units, 'wal')?.power).toBe('ENGLAND');
+    expect(dislodged.length).toBe(0);
+  });
+
+  it('support order referencing a non-existent target is ignored', () => {
+    // A yor → lon (str 1), A wal S ghost → lon (target 'ghost' does not exist → support ignored).
+    // str 1 vs lon str 1 → yor fails.
+    const { units } = resolve(
+      [A('yor'), A('wal'), A('lon', 'FRANCE')],
+      {
+        yor: { type: 'move', dest: 'lon' },
+        wal: { type: 'support', target: 'ghost', dest: 'lon' }, // ghost doesn't exist
+      }
+    );
+    expect(at(units, 'lon')?.power).toBe('FRANCE'); // lon held (yor had no real support)
+  });
+});
+

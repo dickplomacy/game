@@ -4,6 +4,7 @@ import territories from "./territories.json";
 import { resolve } from "./resolver";
 import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution } from "./gameService";
 import { checkWinner, POWERS, SC_IDS } from "./winCondition";
+import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits } from "./adjustments";
 
 // Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
 function displayId(id) {
@@ -130,57 +131,11 @@ const INITIAL_OWNERS = {
   arm: 'TURKEY', syr: 'TURKEY',
 };
 
-const HOME_SCS = {
-  AUSTRIA: ['bud', 'tri', 'vie'],
-  ENGLAND: ['edi', 'lon', 'lvp'],
-  FRANCE:  ['bre', 'mar', 'par'],
-  GERMANY: ['ber', 'kie', 'mun'],
-  ITALY:   ['nap', 'rom', 'ven'],
-  RUSSIA:  ['mos', 'sev', 'stp', 'war'],
-  TURKEY:  ['ank', 'con', 'smy'],
-};
-
-function computeAdjustments(ownerMap, unitList) {
-  const result = {};
-  POWERS.forEach(p => {
-    const scCount = Object.entries(ownerMap).filter(([tid, owner]) => owner === p && SC_IDS.has(tid)).length;
-    const unitCount = unitList.filter(u => u.power === p).length;
-    result[p] = scCount - unitCount;
-  });
-  return result;
-}
-
 const FLAGS = Object.fromEntries(
   ['AUSTRIA','ENGLAND','FRANCE','GERMANY','ITALY','RUSSIA','TURKEY'].map(p =>
     [p, `${import.meta.env.BASE_URL}flags/${p.toLowerCase()}.svg`]
   )
 );
-
-function getAvailableBuildSCs(power, ownerMap, unitList) {
-  const occupied = new Set(unitList.map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
-  return (HOME_SCS[power] ?? []).filter(sc => ownerMap[sc] === power && !occupied.has(sc));
-}
-
-
-function buildWinterData(ownerMap, unitList) {
-  const adjustments = computeAdjustments(ownerMap, unitList);
-  // If no power needs to build or disband, skip winter entirely
-  if (Object.values(adjustments).every(v => v === 0)) return null;
-  // Auto-submit empty orders for powers with no adjustment needed
-  const orders = {};
-  POWERS.forEach(p => { if (adjustments[p] === 0) orders[p] = { builds: [], disbands: [] }; });
-  return { adjustments, orders };
-}
-
-// Derive updated ownership from new unit positions (only updates occupied territories)
-function ownersFromUnits(prevOwners, newUnits) {
-  const next = { ...prevOwners };
-  newUnits.forEach(u => {
-    const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
-    next[base] = u.power;
-  });
-  return next;
-}
 
 function App({ gameData = null, role = null, gameCode = null, playerToken = null }) {
   // role: null (local/observer), 'ADMIN', or a power name like 'ENGLAND'
