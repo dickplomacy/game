@@ -172,6 +172,8 @@ function checkWinner(ownerMap) {
 
 function buildWinterData(ownerMap, unitList) {
   const adjustments = computeAdjustments(ownerMap, unitList);
+  // If no power needs to build or disband, skip winter entirely
+  if (Object.values(adjustments).every(v => v === 0)) return null;
   // Auto-submit empty orders for powers with no adjustment needed
   const orders = {};
   POWERS.forEach(p => { if (adjustments[p] === 0) orders[p] = { builds: [], disbands: [] }; });
