@@ -592,11 +592,10 @@ describe('beleaguered garrison', () => {
 // ── Known limitations ────────────────────────────────────────────────────────
 
 describe('known limitations', () => {
-  it.skip('convoy fails if the convoying fleet is dislodged (not yet implemented)', () => {
+  it('convoy fails if the convoying fleet is dislodged', () => {
     // A yor (ENGLAND) → nwy via F nth (ENGLAND).
-    // F ska (FRANCE) supported by F nrg (FRANCE) dislodges nth.
-    // Per standard Diplomacy rules, the convoy should fail and yor should stay.
-    // Current behaviour: yor still reaches nwy (disruption not implemented).
+    // F ska (FRANCE) supported by F nrg (FRANCE) dislodges nth → convoy disrupted.
+    // Per standard Diplomacy rules, yor stays at yor.
     const { units } = resolve(
       [A('yor', 'ENGLAND'), F('nth', 'ENGLAND'), F('ska', 'FRANCE'), F('nrg', 'FRANCE')],
       {

@@ -11,11 +11,11 @@
  *   - Adjacency enforcement: non-adjacent moves are treated as holds
  *   - Convoy: army may move to non-adjacent coast if a chain of sea fleets with
  *     matching convoy orders connects source to destination
+ *   - Convoy disruption: if a convoying fleet is dislodged the convoy fails unless
+ *     an alternate chain exists; circular dependencies resolve in favour of the convoy
  *   - Convoyed swap: A→X (via convoy) and F X→A is NOT a head-to-head
  *
  * Not yet implemented:
- *   - Support (modifies strength)
- *   - Convoy chain broken by fleet dislodgement (requires support first)
  *   - Retreat phase
  *   - Winter adjustments
  */
@@ -60,13 +60,14 @@ function isAdjacent(unit, destOrigId) {
  * @param {object}   orders      All orders
  * @returns {boolean}
  */
-function hasConvoyChain(armyId, armySrcBase, destOrigId, units, orders) {
+function hasConvoyChain(armyId, armySrcBase, destOrigId, units, orders, excludedFleetIds = new Set()) {
   const destBase = baseId(destOrigId);
 
   // Collect sea territories whose fleet has a valid convoy order for this army→dest
   const convoyingSea = new Set();
   units.forEach(u => {
     if (u.type !== 'F') return;
+    if (excludedFleetIds.has(u.id)) return; // fleet is disrupted — skip
     const o = orders[u.id];
     if (o?.type !== 'convoy') return;
     if (o.army !== armyId) return;
@@ -115,6 +116,56 @@ function hasConvoyChain(armyId, armySrcBase, destOrigId, units, orders) {
 }
 
 /**
+ * Compute attack and hold strengths for the current set of moves, applying support-cutting.
+ */
+function computeStrengths(moves, units, orders, unitById, occupied) {
+  const attackStrength = {};
+  units.forEach(u => { if (moves[u.id]) attackStrength[u.id] = 1; });
+
+  const holdStrength = {};
+  units.forEach(u => { holdStrength[u.id] = 1; });
+
+  // Build cut-supporters set first
+  const cutSupporters = new Set();
+  units.forEach(attacker => {
+    const dest = moves[attacker.id];
+    if (!dest) return;
+    const defenderUnitId = occupied.get(dest);
+    if (!defenderUnitId) return;
+    const defenderOrder = orders[defenderUnitId];
+    if (defenderOrder?.type !== 'support') return;
+    const supportedDest = defenderOrder.dest ? baseId(defenderOrder.dest) : null;
+    if (supportedDest && baseId(attacker.id) === supportedDest) return;
+    cutSupporters.add(defenderUnitId);
+  });
+
+  // Attack strength (move-support, excluding cut supporters)
+  units.forEach(supporter => {
+    if (cutSupporters.has(supporter.id)) return;
+    const o = orders[supporter.id];
+    if (o?.type !== 'support' || !o.dest) return;
+    const target = unitById[o.target];
+    if (!target) return;
+    const targetDest = moves[target.id];
+    if (!targetDest || targetDest !== baseId(o.dest)) return;
+    if (!isAdjacentById(supporter.id, supporter.type, o.dest)) return;
+    attackStrength[target.id] = (attackStrength[target.id] ?? 1) + 1;
+  });
+
+  // Hold strength (hold-support, excluding cut supporters)
+  units.forEach(supporter => {
+    if (cutSupporters.has(supporter.id)) return;
+    const o = orders[supporter.id];
+    if (o?.type !== 'support' || o.dest) return;
+    const target = unitById[o.target];
+    if (!target || moves[target.id]) return;
+    holdStrength[target.id] = (holdStrength[target.id] ?? 1) + 1;
+  });
+
+  return { attackStrength, holdStrength };
+}
+
+/**
  * Resolve orders and return updated state.
  *
  * @param {object[]} units   [{id, type, power, x, y}, ...]
@@ -155,131 +206,59 @@ export function resolve(units, orders) {
     }
   });
 
-  // ── Compute attack strength for each moving unit ─────────────────────────
-  // strength[uid] = 1 + number of valid move-supports for that unit's move order
-  // A support order {type:'support', target:tgtId, dest:destId} is valid when:
-  //   - The supporter is adjacent to the destination being supported into
-  //   - The target unit actually has a move order to that destination
-  //   - The supporter is not the same power as the defending unit (self-dislodge rule)
-  //     NOTE: self-dislodge prevention: if attacker and defender are same power, move fails.
-  //           We handle self-dislodge as a post-resolution check.
-  const attackStrength = {};
-  units.forEach(u => {
-    if (moves[u.id]) attackStrength[u.id] = 1;
-  });
+  // ── Iterative fixpoint: resolve, then check if any convoying fleet was dislodged ──
+  // If a fleet providing a convoy is dislodged, that convoy is disrupted and the
+  // army stays put. This may change support-cut relationships, so we iterate until stable.
+  // Starting with all convoys active means circular-dependency paradoxes (Szykman rule)
+  // resolve naturally in favour of the convoy.
+  let succeeded, standoffTerritories, attackerOf, dislodgedIds;
+  while (true) {
+    const { attackStrength, holdStrength } = computeStrengths(moves, units, orders, unitById, occupied);
 
-  units.forEach(supporter => {
-    const o = orders[supporter.id];
-    if (o?.type !== 'support' || !o.dest) return; // only move-support (not hold-support) boosts attack
+    ({ succeeded, standoffTerritories, attackerOf } =
+      resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStrength, unitById, orders));
 
-    const target = unitById[o.target];
-    if (!target) return;
+    // Self-dislodge prevention
+    succeeded.forEach(uid => {
+      const dest = moves[uid];
+      const defId = occupied.get(dest);
+      if (!defId || succeeded.has(defId)) return;
+      if (unitById[uid]?.power === unitById[defId]?.power) succeeded.delete(uid);
+    });
 
-    const targetDest = moves[target.id];
-    if (!targetDest) return; // target isn't moving (or move is invalid)
-    if (targetDest !== baseId(o.dest)) return; // support is for a different destination
+    // Find dislodged unit IDs
+    dislodgedIds = new Set();
+    succeeded.forEach(uid => {
+      const dest = moves[uid];
+      const occupantId = occupied.get(dest);
+      if (occupantId && !succeeded.has(occupantId)) dislodgedIds.add(occupantId);
+    });
 
-    // Supporter must be adjacent to the destination
-    const suppAdj = isAdjacentById(supporter.id, supporter.type, o.dest);
-    if (!suppAdj) return;
-
-    attackStrength[target.id] = (attackStrength[target.id] ?? 1) + 1;
-  });
-
-  // ── Compute hold strength for each non-moving unit ───────────────────────
-  // hold strength = 1 + valid hold-support orders
-  const holdStrength = {};
-  units.forEach(u => { holdStrength[u.id] = 1; });
-
-  units.forEach(supporter => {
-    const o = orders[supporter.id];
-    if (o?.type !== 'support' || o.dest) return; // only hold-support (dest is null)
-
-    const target = unitById[o.target];
-    if (!target) return;
-    if (moves[target.id]) return; // target is moving, can't hold-support a mover
-
-    holdStrength[target.id] = (holdStrength[target.id] ?? 1) + 1;
-  });
-
-  // ── Support-cutting ───────────────────────────────────────────────────────
-  // A support order is cut if the supporter is attacked from any territory
-  // EXCEPT the destination being supported into.
-  // "Attacked" means: a unit has a move order to the supporter's territory.
-  // Cut support is removed by zeroing its contribution.
-
-  // Build set of supporters that are cut
-  const cutSupporters = new Set();
-  units.forEach(attacker => {
-    const dest = moves[attacker.id];
-    if (!dest) return;
-    const defenderUnitId = occupied.get(dest);
-    if (!defenderUnitId) return;
-    const defenderOrder = orders[defenderUnitId];
-    if (defenderOrder?.type !== 'support') return;
-
-    // defenderUnitId is a supporter — check if attacker came from a different direction
-    const supportedDest = defenderOrder.dest ? baseId(defenderOrder.dest) : null;
-    if (supportedDest && baseId(attacker.id) === supportedDest) return; // attacker came from the dest being supported into — no cut
-
-    cutSupporters.add(defenderUnitId);
-  });
-
-  // Re-compute attack strengths removing cut supporters
-  // Reset and recount
-  units.forEach(u => { if (moves[u.id]) attackStrength[u.id] = 1; });
-  units.forEach(supporter => {
-    if (cutSupporters.has(supporter.id)) return;
-    const o = orders[supporter.id];
-    if (o?.type !== 'support' || !o.dest) return;
-    const target = unitById[o.target];
-    if (!target) return;
-    const targetDest = moves[target.id];
-    if (!targetDest || targetDest !== baseId(o.dest)) return;
-    if (!isAdjacentById(supporter.id, supporter.type, o.dest)) return;
-    attackStrength[target.id] = (attackStrength[target.id] ?? 1) + 1;
-  });
-
-  // Re-compute hold strengths removing cut supporters
-  units.forEach(u => { holdStrength[u.id] = 1; });
-  units.forEach(supporter => {
-    if (cutSupporters.has(supporter.id)) return;
-    const o = orders[supporter.id];
-    if (o?.type !== 'support' || o.dest) return;
-    const target = unitById[o.target];
-    if (!target || moves[target.id]) return;
-    holdStrength[target.id] = (holdStrength[target.id] ?? 1) + 1;
-  });
-
-  // ── Resolution ────────────────────────────────────────────────────────────
-  const { succeeded, standoffTerritories, attackerOf } =
-    resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStrength, unitById, orders);
-
-  // ── Self-dislodge prevention ──────────────────────────────────────────────
-  // A power cannot dislodge its own unit. Only applies when the defender is
-  // staying (not vacating); if defender is also in succeeded, they are moving
-  // away and there is no dislodgement.
-  succeeded.forEach(uid => {
-    const dest = moves[uid];
-    const defId = occupied.get(dest);
-    if (!defId) return;
-    if (succeeded.has(defId)) return; // defender is vacating — no dislodgement
-    if (unitById[uid]?.power === unitById[defId]?.power) {
-      succeeded.delete(uid);
+    // Check whether any active convoy army has had a chain fleet dislodged
+    let disrupted = false;
+    for (const armyId of [...convoyed]) {
+      const destOrig = origDest[armyId];
+      // Does any dislodged unit have a convoy order for this army?
+      const chainFleetHit = [...dislodgedIds].some(fid => {
+        const o = orders[fid];
+        return unitById[fid]?.type === 'F'
+          && o?.type === 'convoy'
+          && o.army === armyId
+          && baseId(o.dest) === baseId(destOrig);
+      });
+      if (!chainFleetHit) continue;
+      // Re-check chain excluding ALL currently dislodged fleets
+      if (!hasConvoyChain(armyId, baseId(armyId), destOrig, units, orders, dislodgedIds)) {
+        delete moves[armyId];
+        convoyed.delete(armyId);
+        disrupted = true;
+      }
     }
-  });
+
+    if (!disrupted) break; // stable — no convoy disruptions this pass
+  }
 
   // ── Build result ─────────────────────────────────────────────────────────
-  // Determine which units are dislodged:
-  // a unit is dislodged if a successful mover is entering its territory
-  const dislodgedIds = new Set();
-  succeeded.forEach(uid => {
-    const dest = moves[uid];
-    const occupantId = occupied.get(dest);
-    if (occupantId && !succeeded.has(occupantId)) {
-      dislodgedIds.add(occupantId);
-    }
-  });
 
   // Compute retreat options for each dislodged unit
   const dislodged = [];
