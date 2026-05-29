@@ -155,6 +155,16 @@ describe('getAvailableBuildSCs', () => {
     expect(available).toEqual([]);
   });
 
+  it('power that lost all home SCs cannot build anywhere', () => {
+    // Rules: "A player who has lost all home supply centers cannot build"
+    // England has 4 SCs but none are home SCs → cannot build
+    const extraSCs = ALL_SCS.filter(sc => !HOME_SCS.ENGLAND.includes(sc)).slice(0, 4);
+    const owners = Object.fromEntries(extraSCs.map(sc => [sc, 'ENGLAND']));
+    // No home SCs owned — getAvailableBuildSCs returns []
+    const available = getAvailableBuildSCs('ENGLAND', owners, []);
+    expect(available).toEqual([]);
+  });
+
   it('treats coast-variant unit ids as occupying the base territory', () => {
     // stp-sc (fleet) occupies stp
     const owners = { mos: 'RUSSIA', sev: 'RUSSIA', stp: 'RUSSIA', war: 'RUSSIA' };

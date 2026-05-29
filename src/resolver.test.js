@@ -713,6 +713,32 @@ describe('units count invariant', () => {
 
 // ── Void orders ──────────────────────────────────────────────────────────────
 
+describe('self-move (move to own territory)', () => {
+  it('move ordered to own territory is treated as hold', () => {
+    // Rules: "Unit ordered to move to its own territory → treated as Hold"
+    // lon is not in lon's army adj list → no convoy chain → move is ignored.
+    const { units } = resolve(
+      [A('lon')],
+      { lon: { type: 'move', dest: 'lon' } }
+    );
+    expect(at(units, 'lon')?.power).toBe('ENGLAND');
+  });
+
+  it('self-move does not block an attacking unit (holds, not resists)', () => {
+    // A yor attacks A lon whose order is to move to itself.
+    // lon holds (self-move = hold) with strength 1. yor attacks with strength 1 → fails.
+    const { units, dislodged } = resolve(
+      [A('yor'), A('lon', 'FRANCE')],
+      {
+        yor: { type: 'move', dest: 'lon' },
+        lon: { type: 'move', dest: 'lon' }, // self-move = hold
+      }
+    );
+    expect(at(units, 'lon')?.power).toBe('FRANCE');
+    expect(dislodged.length).toBe(0);
+  });
+});
+
 describe('void orders', () => {
   it('orders for non-existent units are silently ignored', () => {
     // Orders reference 'par' and 'ber' which are not in the units array.
