@@ -23,6 +23,11 @@ const TREATY_TYPES = [
     label: 'Alliance',
     desc: 'A mutual defence pact between signing powers. Optionally designate shared adversaries.',
   },
+  {
+    id: 'claims',
+    label: 'Territory Claims',
+    desc: 'Parties acknowledge each other’s territorial ambitions. Assign intended territories to each signatory.',
+  },
 ];
 
 // All non-impassable territories (land, coast, sea) — no coast variants
@@ -59,7 +64,8 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
   const [terrFilter, setTerrFilter] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [selectedAdversaries, setSelectedAdversaries] = useState([]);
-  const [breakConfirm, setBreakConfirm] = useState(null); // treaty id pending break confirm
+  const [claimsMap, setClaimsMap] = useState({}); // { [power]: string[] } for 'claims' type
+  const [breakConfirm, setBreakConfirm] = useState(null);
 
   // Subscribe to treaties subcollection
   useEffect(() => {
@@ -100,17 +106,21 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
 
   async function handlePropose() {
     const needsTerrs = treatyType === 'demilitarization';
-    if (!myPower || selectedParties.length === 0 || (needsTerrs && selectedTerritories.length === 0) || submitting) return;
+    const needsClaims = treatyType === 'claims';
+    const allParties = [myPower, ...selectedParties];
+    const claimsValid = !needsClaims || allParties.some(p => (claimsMap[p] || []).length > 0);
+    if (!myPower || selectedParties.length === 0 || (needsTerrs && selectedTerritories.length === 0) || !claimsValid || submitting) return;
     setSubmitting(true);
     try {
       await addDoc(collection(db, 'games', gameCode.toUpperCase(), 'treaties'), {
         type: treatyType,
         proposedBy: myPower,
-        parties: [myPower, ...selectedParties],
+        parties: allParties,
         territories: needsTerrs ? selectedTerritories : [],
         adversaries: treatyType === 'alliance' ? selectedAdversaries.filter(p => !selectedParties.includes(p) && p !== myPower) : [],
+        claims: needsClaims ? Object.fromEntries(allParties.map(p => [p, claimsMap[p] || []])) : {},
         status: 'pending',
-        signatures: [myPower], // proposer auto-signs
+        signatures: [myPower],
         year: year ?? null,
         phase: phase ?? null,
         createdAt: serverTimestamp(),
@@ -118,6 +128,7 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
       setSelectedTerritories([]);
       setSelectedParties([]);
       setSelectedAdversaries([]);
+      setClaimsMap({});
       setTerrFilter('');
       setShowCompose(false);
     } finally {
@@ -168,6 +179,21 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
                 {t.type === 'alliance' && t.adversaries?.length > 0 && (
                   <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.4 }}>
                     Against: <strong style={{ color: '#b22' }}>{t.adversaries.join(', ')}</strong>
+                  </div>
+                )}
+                {t.type === 'claims' && t.claims && (
+                  <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.6 }}>
+                    {t.parties.map(p => {
+                      const terrs = t.claims[p] || [];
+                      if (!terrs.length) return null;
+                      return (
+                        <div key={p}>
+                          <span style={{ fontWeight: 700, color: POWER_COLOR[p] ?? '#555' }}>{p}</span>
+                          {' claims: '}
+                          <strong>{terrs.map(displayId).join(', ')}</strong>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 <div style={{ fontSize: 9, color: '#aaa', marginBottom: canAct ? 5 : 0 }}>
@@ -234,6 +260,21 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
                 {t.type === 'alliance' && t.adversaries?.length > 0 && (
                   <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.4 }}>
                     Against: <strong style={{ color: '#b22' }}>{t.adversaries.join(', ')}</strong>
+                  </div>
+                )}
+                {t.type === 'claims' && t.claims && (
+                  <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.6 }}>
+                    {t.parties.map(p => {
+                      const terrs = t.claims[p] || [];
+                      if (!terrs.length) return null;
+                      return (
+                        <div key={p}>
+                          <span style={{ fontWeight: 700, color: POWER_COLOR[p] ?? '#555' }}>{p}</span>
+                          {' claims: '}
+                          <strong>{terrs.map(displayId).join(', ')}</strong>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 <div style={{ fontSize: 9, color: '#aaa', marginBottom: needsMyAction ? 7 : 0 }}>
@@ -363,6 +404,50 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
           </div>
           )}
 
+          {/* Territory Claims (claims only) */}
+          {treatyType === 'claims' && selectedParties.length > 0 && (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#555', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assign Claims</div>
+            <input
+              type="text"
+              value={terrFilter}
+              onChange={e => setTerrFilter(e.target.value)}
+              placeholder="Filter territories…"
+              style={{ width: '100%', fontSize: 11, padding: '3px 6px', border: '1px solid #ccc', borderRadius: 3, boxSizing: 'border-box', marginBottom: 6 }}
+            />
+            {[myPower, ...selectedParties].map(p => (
+              <div key={p} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[p] ?? '#555', marginBottom: 3 }}>{p}</div>
+                <div style={{ maxHeight: 70, overflowY: 'auto', border: '1px solid #ddd', borderRadius: 3, background: '#fff' }}>
+                  {filteredTerrs.map(({ id, name }) => {
+                    const checked = (claimsMap[p] || []).includes(id);
+                    return (
+                      <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '2px 5px', cursor: 'pointer', background: checked ? '#fef3cd' : 'transparent', fontSize: 11, userSelect: 'none' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setClaimsMap(prev => {
+                            const cur = prev[p] || [];
+                            return { ...prev, [p]: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] };
+                          })}
+                          style={{ margin: 0 }}
+                        />
+                        <span style={{ fontWeight: 600, minWidth: 28 }}>{displayId(id)}</span>
+                        <span style={{ color: '#888', fontSize: 10 }}>{name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {(claimsMap[p] || []).length > 0 && (
+                  <div style={{ fontSize: 10, color: '#7a5c10', marginTop: 2 }}>
+                    {(claimsMap[p] || []).map(displayId).join(', ')}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          )}
+
           {/* Mutual enemies (alliance only, optional) */}
           {treatyType === 'alliance' && (
           <div>
@@ -389,13 +474,13 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
           <div style={{ display: 'flex', gap: 5 }}>
             <button
               onClick={handlePropose}
-              disabled={submitting || selectedParties.length === 0 || (treatyType === 'demilitarization' && selectedTerritories.length === 0)}
-              style={{ flex: 1, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer', background: '#7a5c10', color: '#fff', border: 'none', borderRadius: 3, opacity: (selectedParties.length === 0 || (treatyType === 'demilitarization' && selectedTerritories.length === 0) || submitting) ? 0.5 : 1 }}
+              disabled={submitting || selectedParties.length === 0 || (treatyType === 'demilitarization' && selectedTerritories.length === 0) || (treatyType === 'claims' && ![myPower, ...selectedParties].some(p => (claimsMap[p] || []).length > 0))}
+              style={{ flex: 1, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer', background: '#7a5c10', color: '#fff', border: 'none', borderRadius: 3, opacity: (selectedParties.length === 0 || (treatyType === 'demilitarization' && selectedTerritories.length === 0) || (treatyType === 'claims' && ![myPower, ...selectedParties].some(p => (claimsMap[p] || []).length > 0)) || submitting) ? 0.5 : 1 }}
             >
               {submitting ? 'Proposing…' : 'Propose Treaty'}
             </button>
             <button
-              onClick={() => { setShowCompose(false); setSelectedTerritories([]); setSelectedParties([]); setSelectedAdversaries([]); setTerrFilter(''); }}
+              onClick={() => { setShowCompose(false); setSelectedTerritories([]); setSelectedParties([]); setSelectedAdversaries([]); setClaimsMap({}); setTerrFilter(''); }}
               style={{ padding: '7px 10px', fontSize: 11, cursor: 'pointer', background: '#eee', color: '#555', border: '1px solid #ccc', borderRadius: 3 }}
             >
               Cancel
