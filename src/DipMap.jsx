@@ -169,7 +169,7 @@ function UnitSymbol({ unit, selected }) {
   );
 }
 
-export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover }) {
+export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set() }) {
   const tList = Object.values(territories);
   const unitsByTerritory = {};
   units.forEach(u => {
@@ -217,6 +217,17 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
           return SC_TERRITORIES.filter(t => !occupied.has(t.id)).map(t => <SupplyCenterStar key={t.id} t={t} />);
         })()}
       </g>
+      {demilTerritories.size > 0 && (
+        <g transform="translate(-195 -170)" style={{ pointerEvents: 'none' }}>
+          {Object.values(territories).filter(t => demilTerritories.has(t.id) && t.svg).map(t => {
+            const props = { fill: 'none', stroke: '#cc0000', strokeWidth: 3, strokeDasharray: '8 5' };
+            if (Array.isArray(t.svg)) {
+              return <g key={t.id}>{t.svg.map((d, i) => <path key={i} d={d} {...props} />)}</g>;
+            }
+            return <path key={t.id} d={t.svg} {...props} />;
+          })}
+        </g>
+      )}
       <g>
         <OrderArrows orders={orders} units={units} />
       </g>

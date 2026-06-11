@@ -20,11 +20,11 @@ const TREATY_TYPES = [
   },
 ];
 
-// All land/coast territories — no coast variants, no water, no impassable
+// All non-impassable territories (land, coast, sea) — no coast variants
 const LAND_TERRITORIES = Object.values(territories)
-  .filter(t => t.type !== 'water' && t.type !== 'impassable' && !t.id.includes('-'))
-  .map(t => t.id)
-  .sort();
+  .filter(t => t.type !== 'impassable' && !t.id.includes('-'))
+  .map(t => ({ id: t.id, name: t.name }))
+  .sort((a, b) => a.id.localeCompare(b.id));
 
 function displayId(id) {
   return id.replace('-', '/').toUpperCase();
@@ -45,7 +45,7 @@ function phaseLabel(t) {
  * - When all parties have signed → status becomes 'active'.
  * - Any party (or admin) deleting → removes the document entirely.
  */
-export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPendingChange }) {
+export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPendingChange, onActiveTreaties }) {
   const [treaties, setTreaties] = useState([]);
   const [showCompose, setShowCompose] = useState(false);
   const [treatyType, setTreatyType] = useState('demilitarization');
@@ -76,6 +76,7 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
   const awaitingMe = pendingTreaties.filter(t => myPower && !t.signatures.includes(myPower));
 
   useEffect(() => { onPendingChange?.(awaitingMe.length); }, [awaitingMe.length]);
+  useEffect(() => { onActiveTreaties?.(activeTreaties); }, [JSON.stringify(activeTreaties.map(t => ({ id: t.id, territories: t.territories, parties: t.parties, type: t.type })))]);
 
   async function handleSign(treaty) {
     const newSigs = [...new Set([...treaty.signatures, myPower])];
@@ -116,8 +117,10 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
   }
 
   const otherPowers = POWERS.filter(p => p !== myPower);
-  const filteredTerrs = LAND_TERRITORIES.filter(id =>
-    terrFilter === '' || id.includes(terrFilter.toLowerCase())
+  const filteredTerrs = LAND_TERRITORIES.filter(({ id, name }) =>
+    terrFilter === '' ||
+    id.includes(terrFilter.toLowerCase()) ||
+    name.toLowerCase().includes(terrFilter.toLowerCase())
   );
 
   return (
@@ -314,7 +317,7 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
               style={{ width: '100%', fontSize: 11, padding: '3px 6px', border: '1px solid #ccc', borderRadius: 3, boxSizing: 'border-box', marginBottom: 4 }}
             />
             <div style={{ maxHeight: 90, overflowY: 'auto', border: '1px solid #ddd', borderRadius: 3, background: '#fff' }}>
-              {filteredTerrs.map(id => (
+              {filteredTerrs.map(({ id, name }) => (
                 <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '2px 5px', cursor: 'pointer', background: selectedTerritories.includes(id) ? '#fef3cd' : 'transparent', fontSize: 11, userSelect: 'none' }}>
                   <input
                     type="checkbox"
@@ -322,7 +325,8 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
                     onChange={() => setSelectedTerritories(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
                     style={{ margin: 0 }}
                   />
-                  {displayId(id)}
+                  <span style={{ fontWeight: 600, minWidth: 28 }}>{displayId(id)}</span>
+                  <span style={{ color: '#888', fontSize: 10 }}>{name}</span>
                 </label>
               ))}
             </div>

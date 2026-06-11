@@ -169,6 +169,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [sidebarTab, setSidebarTab] = useState('orders');
   const [pressUnread, setPressUnread] = useState(0);
   const [treatiesPending, setTreatiesPending] = useState(0);
+  const [activeTreaties, setActiveTreaties] = useState([]);
 
   // Responsive layout: column on narrow screens
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
@@ -803,6 +804,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               year={gameData?.year}
               phase={gameData?.phase}
               onPendingChange={setTreatiesPending}
+              onActiveTreaties={setActiveTreaties}
             />
           )}
         </div>
@@ -821,6 +823,11 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               validMoves={getValidMovesForMode()}
               onTerritoryClick={handleTerritoryClick}
               onTerritoryHover={() => {}}
+              demilTerritories={new Set(
+                activeTreaties
+                  .filter(t => t.type === 'demilitarization' && (isAdmin || (myPower && t.parties.includes(myPower))))
+                  .flatMap(t => t.territories)
+              )}
             />
             {coastChoice && (
               <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', border: '2px solid #333', borderRadius: 6, padding: '12px 16px', boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 10, textAlign: 'center' }}>
