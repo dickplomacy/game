@@ -17,12 +17,21 @@ export default function NewGame() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(null);
   const [autoResolve, setAutoResolve] = useState(false);
+  const [passivePowers, setPassivePowers] = useState(new Set());
+
+  function togglePassive(p) {
+    setPassivePowers(prev => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  }
 
   async function handleCreate() {
     setLoading(true);
     setError(null);
     try {
-      const g = await createGame({ autoResolve });
+      const g = await createGame({ autoResolve, passivePowers: [...passivePowers] });
       setGame(g);
     } catch (e) {
       setError(e.message);
@@ -48,7 +57,7 @@ export default function NewGame() {
         <div style={{ fontSize: 13, color: '#555', marginBottom: 24 }}>Code: <strong>{game.code}</strong> · {game.phase} {game.year}</div>
         <div style={{ width: '100%', maxWidth: 420, padding: '0 16px', boxSizing: 'border-box' }}>
           <div style={{ fontWeight: 700, fontSize: 11, letterSpacing: '0.06em', color: '#888', textTransform: 'uppercase', marginBottom: 8 }}>Player Links — share each link with the respective player</div>
-          {['ADMIN', ...POWERS].map(role => (
+          {['ADMIN', ...POWERS.filter(r => !game.settings?.passivePowers?.includes(r))].map(role => (
             <div key={role} style={{ display: 'flex', alignItems: 'center', marginBottom: 6, gap: 8 }}>
               <span style={{ width: 72, flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#333' }}>{role}</span>
               <span style={{ flex: 1, fontSize: 10, fontFamily: 'monospace', background: '#f5f5f5', padding: '4px 8px', borderRadius: 3, border: '1px solid #ddd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -93,6 +102,20 @@ export default function NewGame() {
           />
           Auto-resolve when all orders are submitted
         </label>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#555', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 7 }}>Exclude from game (passive)</div>
+          {POWERS.map(p => (
+            <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, cursor: 'pointer', userSelect: 'none', fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={passivePowers.has(p)}
+                onChange={() => togglePassive(p)}
+                style={{ width: 13, height: 13, cursor: 'pointer', accentColor: '#b22' }}
+              />
+              <span style={{ color: passivePowers.has(p) ? '#b22' : '#333', fontWeight: passivePowers.has(p) ? 700 : 400 }}>{p}</span>
+            </label>
+          ))}
+        </div>
         <button onClick={handleCreate} disabled={loading} style={{ ...btnStyle, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
           {loading ? 'Creating...' : '▶ Create Game'}
         </button>

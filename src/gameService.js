@@ -150,6 +150,8 @@ export async function createGame(settings = {}) {
     retreatPhase: null,
     settings: {
       autoResolve: settings.autoResolve ?? false,
+      passivePowers: settings.passivePowers ?? [],
+      lockedPowers: [],
     },
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -272,4 +274,19 @@ export async function writeWinterResolution(gameCode, newUnits, currentYear) {
     winterPhase: null,
     updatedAt: serverTimestamp(),
   });
+}
+
+/**
+ * Lock or unlock a country in the join picker.
+ * locked=true adds the power to lockedPowers; false removes it.
+ */
+export async function setCountryLock(gameCode, power, locked) {
+  const ref = doc(db, 'games', gameCode.toUpperCase());
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const current = snap.data().settings?.lockedPowers ?? [];
+  const updated = locked
+    ? [...new Set([...current, power])]
+    : current.filter(p => p !== power);
+  await updateDoc(ref, { 'settings.lockedPowers': updated, updatedAt: serverTimestamp() });
 }

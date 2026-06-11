@@ -108,26 +108,34 @@ export default function JoinGame() {
             <div style={{ fontSize: 12, color: '#666', textAlign: 'center', marginBottom: '0.75rem', letterSpacing: '0.04em' }}>
               GAME <strong style={{ color: '#111' }}>{foundCode}</strong> — choose your country
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {POWERS.map(power => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {POWERS
+                .filter(power => !game.settings?.passivePowers?.includes(power))
+                .map(power => {
+                const isLocked = game.settings?.lockedPowers?.includes(power);
+                return (
                 <button
                   key={power}
-                  onClick={() => handlePickPower(power)}
+                  onClick={() => !isLocked && handlePickPower(power)}
+                  disabled={isLocked}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '8px 12px', border: 'none', borderRadius: 6, cursor: 'pointer',
-                    background: POWER_COLOR[power], color: '#fff',
+                    padding: '8px 12px', border: 'none', borderRadius: 6,
+                    cursor: isLocked ? 'not-allowed' : 'pointer',
+                    background: isLocked ? '#ccc' : POWER_COLOR[power], color: '#fff',
                     fontWeight: 700, fontSize: 14, letterSpacing: '0.04em',
                     boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                    opacity: isLocked ? 0.55 : 1,
                     transition: 'opacity 0.1s',
                   }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
-                  onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                  onMouseEnter={e => { if (!isLocked) e.currentTarget.style.opacity = '0.85'; }}
+                  onMouseLeave={e => { if (!isLocked) e.currentTarget.style.opacity = '1'; }}
                 >
                   <img src={FLAGS[power]} alt={power} style={{ height: 20, width: 30, objectFit: 'cover', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
-                  {power}
+                  {power}{isLocked && ' 🔒'}
                 </button>
-              ))}
+              );
+            })}
             </div>
           </>
         )}

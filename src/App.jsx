@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution } from "./gameService";
+import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock } from "./gameService";
 import { checkWinner, POWERS, SC_IDS } from "./winCondition";
 import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits } from "./adjustments";
 import Press from "./Press";
@@ -146,6 +146,9 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const isAdmin = role === 'ADMIN';
   // The power this player controls (null for admin/observer)
   const myPower = (role && role !== 'ADMIN') ? role : null;
+  const passivePowers = gameData?.settings?.passivePowers ?? [];
+  const lockedPowers = gameData?.settings?.lockedPowers ?? [];
+  const activePowers = POWERS.filter(p => !passivePowers.includes(p));
   // setUnits will be used when resolver updates unit positions
   const [units, setUnits] = useState(STARTING_UNITS);
   const [owners, setOwners] = useState(() => ownersFromUnits(INITIAL_OWNERS, STARTING_UNITS));
@@ -170,6 +173,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [pressUnread, setPressUnread] = useState(0);
   const [treatiesPending, setTreatiesPending] = useState(0);
   const [activeTreaties, setActiveTreaties] = useState([]);
+  const [showLinks, setShowLinks] = useState(false);
+  const [copiedAdminLink, setCopiedAdminLink] = useState(null);
 
   // Responsive layout: column on narrow screens
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
@@ -209,7 +214,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (!isAdmin || !gameData?.settings?.autoResolve || autoResolvingRef.current) return;
     const phase = gameData.phase;
     if (phase === 'spring-move' || phase === 'fall-move') {
-      const allIn = POWERS.every(p => gameData.orders?.[p] != null);
+      const allIn = activePowers.every(p => gameData.orders?.[p] != null);
       if (allIn) {
         autoResolvingRef.current = true;
         resolveOrdersMultiplayer().finally(() => { autoResolvingRef.current = false; });
@@ -225,7 +230,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     } else if (phase === 'winter') {
       const adj = gameData.winterPhase?.adjustments ?? {};
       const submittedOrders = gameData.winterPhase?.orders ?? {};
-      const allIn = POWERS.every(p => (adj[p] ?? 0) === 0 || submittedOrders[p] != null);
+      const allIn = activePowers.every(p => (adj[p] ?? 0) === 0 || submittedOrders[p] != null);
       if (allIn) {
         autoResolvingRef.current = true;
         resolveWinterMultiplayer().finally(() => { autoResolvingRef.current = false; });
@@ -697,6 +702,27 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
             </>
           ) : (
             <>
+              {/* Admin: player invite links */}
+              {isAdmin && isMultiplayer && (
+                <div style={{ marginBottom: 5, flexShrink: 0 }}>
+                  <button onClick={() => setShowLinks(l => !l)} style={{ width: '100%', padding: '3px 6px', fontSize: 10, cursor: 'pointer', background: '#eee', color: '#333', border: '1px solid #ccc', borderRadius: 3, textAlign: 'left', fontWeight: 700 }}>
+                    {showLinks ? '▾' : '▸'} Player Links
+                  </button>
+                  {showLinks && (
+                    <div style={{ background: '#f9f9f9', border: '1px solid #ddd', borderRadius: 3, padding: '5px', marginTop: 3 }}>
+                      {activePowers.map(p => (
+                        <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: POWER_COLOR[p], minWidth: 54, flexShrink: 0 }}>{p}</span>
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(`https://dickplomacy.github.io/game/#/${gameCode}/${gameData.players[p]}`); setCopiedAdminLink(p); setTimeout(() => setCopiedAdminLink(null), 1500); }}
+                            style={{ flex: 1, padding: '2px 5px', fontSize: 9, cursor: 'pointer', background: copiedAdminLink === p ? '#2a6e2a' : '#444', color: '#fff', border: 'none', borderRadius: 2, fontWeight: 700 }}
+                          >{copiedAdminLink === p ? '✓' : 'Copy'}</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {/* Resolve button: local mode always shows it; multiplayer only for admin */}
               {(!isMultiplayer || isAdmin) && (
                 <button
@@ -729,6 +755,13 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   </button>
                 )
               )}
+              {/* Player lock checkbox */}
+              {isMultiplayer && myPower && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, cursor: 'pointer', userSelect: 'none', color: '#555', padding: '2px 0', flexShrink: 0 }}>
+                  <input type="checkbox" checked={lockedPowers.includes(myPower)} onChange={e => setCountryLock(gameCode, myPower, e.target.checked)} style={{ margin: 0, cursor: 'pointer' }} />
+                  {lockedPowers.includes(myPower) ? '🔒' : '🔓'} Lock my country from join picker
+                </label>
+              )}
               <div style={{ display: 'flex', gap: 5 }}>
                 <button
                   onClick={() => { if (submitted) return; setMode(m => m === 'move' ? null : 'move'); setSelectedUnit(null); setSupportTarget(null); setConvoyArmy(null); }}
@@ -756,12 +789,22 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   // In multiplayer, show whether this power has submitted orders
                   const hasSubmitted = isMultiplayer && !!gameData?.orders?.[power];
                   const isMyPower = !myPower || power === myPower;
+                  const isPassive = passivePowers.includes(power);
+                  const isLocked = lockedPowers.includes(power);
                   return (
                     <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 6, opacity: isMyPower ? 1 : 0.3 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: POWER_COLOR[power], textTransform: 'uppercase', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
                         <img src={FLAGS[power]} alt={power} style={{ height: 11, width: 17, objectFit: 'cover', borderRadius: 1, flexShrink: 0, border: '1px solid rgba(0,0,0,0.15)' }} />
                         <span>{power}</span>
                         <span style={{ fontWeight: 400, color: '#555' }}>({scCount} SC)</span>
+                        {isPassive && <span style={{ fontSize: 8, color: '#888', fontWeight: 400, fontStyle: 'italic' }}>passive</span>}
+                        {isMultiplayer && !isPassive && (isAdmin || power === myPower) && (
+                          <button
+                            onClick={() => setCountryLock(gameCode, power, !isLocked)}
+                            title={isLocked ? 'Unlock join picker' : 'Lock join picker'}
+                            style={{ padding: '0 3px', fontSize: 10, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
+                          >{isLocked ? '🔒' : '🔓'}</button>
+                        )}
                         {isMultiplayer && <span style={{ marginLeft: 'auto', fontSize: 9, color: hasSubmitted ? '#2a6e2a' : '#aaa', fontWeight: 700 }}>{hasSubmitted ? '✓' : '…'}</span>}
                       </div>
                       {powerUnits.map(u => {
