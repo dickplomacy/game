@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Game documents — open access (auth is handled via secret player tokens)
+    match /games/{gameCode} {
+      allow read, write: if true;
+
+      // Press messages subcollection
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
+    }
+  }
+}
