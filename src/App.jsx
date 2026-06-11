@@ -838,6 +838,13 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   .filter(t => t.type === 'alliance' && myPower && t.parties.includes(myPower))
                   .flatMap(t => t.adversaries || [])
               )}
+              claimBorders={(() => {
+                const m = {};
+                activeTreaties
+                  .filter(t => t.type === 'claims' && (isAdmin || (myPower && t.parties.includes(myPower))))
+                  .forEach(t => Object.entries(t.claims || {}).forEach(([p, ids]) => ids.forEach(id => { m[id] = p; })));
+                return m;
+              })()}
             />
             {coastChoice && (
               <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', border: '2px solid #333', borderRadius: 6, padding: '12px 16px', boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 10, textAlign: 'center' }}>

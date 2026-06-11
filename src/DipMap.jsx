@@ -173,7 +173,7 @@ function UnitSymbol({ unit, selected, allianceBorder = null }) {
   );
 }
 
-export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set(), alliedPowers = new Set(), enemyPowers = new Set() }) {
+export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set(), alliedPowers = new Set(), enemyPowers = new Set(), claimBorders = {} }) {
   const tList = Object.values(territories);
   const unitsByTerritory = {};
   units.forEach(u => {
@@ -241,6 +241,18 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
         <g transform="translate(-195 -170)" style={{ pointerEvents: 'none' }}>
           {Object.values(territories).filter(t => demilTerritories.has(t.id) && t.svg).map(t => {
             const props = { fill: 'none', stroke: '#cc0000', strokeWidth: 3, strokeDasharray: '8 5' };
+            if (Array.isArray(t.svg)) {
+              return <g key={t.id}>{t.svg.map((d, i) => <path key={i} d={d} {...props} />)}</g>;
+            }
+            return <path key={t.id} d={t.svg} {...props} />;
+          })}
+        </g>
+      )}
+      {Object.keys(claimBorders).length > 0 && (
+        <g transform="translate(-195 -170)" style={{ pointerEvents: 'none' }}>
+          {Object.values(territories).filter(t => claimBorders[t.id] && t.svg).map(t => {
+            const color = POWER_COLORS[claimBorders[t.id]] || '#999';
+            const props = { fill: 'none', stroke: color, strokeWidth: 4 };
             if (Array.isArray(t.svg)) {
               return <g key={t.id}>{t.svg.map((d, i) => <path key={i} d={d} {...props} />)}</g>;
             }
