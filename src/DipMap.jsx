@@ -3,6 +3,45 @@
 import './DipMap.css';
 import territories from './territories.json';
 
+// Extract all coordinate pairs from SVG path data (M/L/C control points)
+function parsePathPoints(svgData) {
+  const str = Array.isArray(svgData) ? svgData.join(' ') : svgData;
+  const nums = str.replace(/[A-Za-z]/g, ' ').match(/-?\d+(?:\.\d+)?/g);
+  if (!nums) return [];
+  const pts = [];
+  for (let i = 0; i + 1 < nums.length; i += 2)
+    pts.push([parseFloat(nums[i]), parseFloat(nums[i + 1])]);
+  return pts;
+}
+
+// Weiszfeld geometric median – minimises sum of Euclidean distances
+function geometricMedian(pts, iters = 30) {
+  if (!pts.length) return null;
+  let x = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+  let y = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  for (let i = 0; i < iters; i++) {
+    let wx = 0, wy = 0, w = 0;
+    for (const [px, py] of pts) {
+      const d = Math.hypot(px - x, py - y);
+      if (d < 0.5) continue;
+      const inv = 1 / d;
+      wx += px * inv; wy += py * inv; w += inv;
+    }
+    if (w < 1e-9) break;
+    x = wx / w; y = wy / w;
+  }
+  // SVG paths use the translate(-195 -170) group; convert to viewBox space
+  return { x: x - 195, y: y - 170 };
+}
+
+// Pre-compute label positions once at module load
+const LABEL_COORDS = {};
+Object.values(territories).forEach(t => {
+  if (!t.svg || t.id.includes('-') || t.type === 'impassable') return;
+  const coord = geometricMedian(parsePathPoints(t.svg));
+  if (coord) LABEL_COORDS[t.id] = coord;
+});
+
 function getClass(t, owners) {
   if (t.id.includes('-')) return 'coast-variant';
   if (t.type === 'water') return 'water';
@@ -222,20 +261,23 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
         })()}
       </g>
       <g style={{ pointerEvents: 'none', userSelect: 'none' }}>
-        {tList.filter(t => !t.id.includes('-') && t.type !== 'impassable' && t.unitCoord).map(t => (
-          <text
-            key={t.id + '-lbl'}
-            x={t.unitCoord.x}
-            y={t.unitCoord.y - 18}
-            textAnchor="middle"
-            fontSize={9}
-            fontWeight="600"
-            fontFamily="sans-serif"
-            fill="rgba(0,0,0,0.42)"
-          >
-            {t.id.toUpperCase()}
-          </text>
-        ))}
+        {tList.filter(t => !t.id.includes('-') && t.type !== 'impassable' && LABEL_COORDS[t.id]).map(t => {
+          const { x, y } = LABEL_COORDS[t.id];
+          return (
+            <text
+              key={t.id + '-lbl'}
+              x={x}
+              y={y + 4}
+              textAnchor="middle"
+              fontSize={9}
+              fontWeight="600"
+              fontFamily="sans-serif"
+              fill="rgba(0,0,0,0.42)"
+            >
+              {t.id.toUpperCase()}
+            </text>
+          );
+        })}
       </g>
       {demilTerritories.size > 0 && (
         <g transform="translate(-195 -170)" style={{ pointerEvents: 'none' }}>
