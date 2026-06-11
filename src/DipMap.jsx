@@ -217,6 +217,22 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
           return SC_TERRITORIES.filter(t => !occupied.has(t.id)).map(t => <SupplyCenterStar key={t.id} t={t} />);
         })()}
       </g>
+      <g style={{ pointerEvents: 'none', userSelect: 'none' }}>
+        {tList.filter(t => !t.id.includes('-') && t.type !== 'impassable' && t.unitCoord).map(t => (
+          <text
+            key={t.id + '-lbl'}
+            x={t.unitCoord.x}
+            y={t.unitCoord.y - 18}
+            textAnchor="middle"
+            fontSize={9}
+            fontWeight="600"
+            fontFamily="sans-serif"
+            fill="rgba(0,0,0,0.42)"
+          >
+            {t.id.toUpperCase()}
+          </text>
+        ))}
+      </g>
       {demilTerritories.size > 0 && (
         <g transform="translate(-195 -170)" style={{ pointerEvents: 'none' }}>
           {Object.values(territories).filter(t => demilTerritories.has(t.id) && t.svg).map(t => {
