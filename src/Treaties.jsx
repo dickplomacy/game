@@ -55,7 +55,7 @@ function phaseLabel(t) {
  * - When all parties have signed → status becomes 'active'.
  * - Any party (or admin) deleting → removes the document entirely.
  */
-export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPendingChange, onActiveTreaties }) {
+export default function Treaties({ gameCode, myPower, isAdmin, year, phase, passivePowers = [], onPendingChange, onActiveTreaties }) {
   const [treaties, setTreaties] = useState([]);
   const [showCompose, setShowCompose] = useState(false);
   const [treatyType, setTreatyType] = useState('demilitarization');
@@ -136,8 +136,8 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
     }
   }
 
-  const otherPowers = POWERS.filter(p => p !== myPower);
-  const adversaryChoices = POWERS.filter(p => p !== myPower && !selectedParties.includes(p));
+  const otherPowers = POWERS.filter(p => p !== myPower && !passivePowers.includes(p));
+  const adversaryChoices = POWERS.filter(p => p !== myPower && !selectedParties.includes(p) && !passivePowers.includes(p));
   const filteredTerrs = LAND_TERRITORIES.filter(({ id, name }) =>
     terrFilter === '' ||
     id.includes(terrFilter.toLowerCase()) ||

@@ -846,6 +846,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               isAdmin={isAdmin}
               year={gameData?.year}
               phase={gameData?.phase}
+              passivePowers={passivePowers}
               onPendingChange={setTreatiesPending}
               onActiveTreaties={setActiveTreaties}
             />
