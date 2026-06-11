@@ -828,6 +828,16 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   .filter(t => t.type === 'demilitarization' && (isAdmin || (myPower && t.parties.includes(myPower))))
                   .flatMap(t => t.territories)
               )}
+              alliedPowers={new Set(
+                activeTreaties
+                  .filter(t => t.type === 'alliance' && myPower && t.parties.includes(myPower))
+                  .flatMap(t => t.parties.filter(p => p !== myPower))
+              )}
+              enemyPowers={new Set(
+                activeTreaties
+                  .filter(t => t.type === 'alliance' && myPower && t.parties.includes(myPower))
+                  .flatMap(t => t.adversaries || [])
+              )}
             />
             {coastChoice && (
               <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', border: '2px solid #333', borderRadius: 6, padding: '12px 16px', boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 10, textAlign: 'center' }}>

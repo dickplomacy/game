@@ -151,25 +151,29 @@ function OrderArrows({ orders, units }) {
   return <g>{arrows}</g>;
 }
 
-function UnitSymbol({ unit, selected }) {
+function UnitSymbol({ unit, selected, allianceBorder = null }) {
   const { x, y, type, power } = unit;
   const color = POWER_COLORS[power] || '#999';
   const r = 13;
+  const mkShape = (props) => type === 'A'
+    ? <rect x={x - r} y={y - r} width={r * 2} height={r * 2} rx={3} {...props} />
+    : <circle cx={x} cy={y} r={r} {...props} />;
   return (
     <g style={{ pointerEvents: 'none' }}>
-      {type === 'A'
-        ? <rect x={x - r} y={y - r} width={r * 2} height={r * 2} rx={3}
-            fill={color} stroke={selected ? '#ffcc00' : '#222'} strokeWidth={selected ? 2.5 : 1.5} />
-        : <circle cx={x} cy={y} r={r}
-            fill={color} stroke={selected ? '#ffcc00' : '#222'} strokeWidth={selected ? 2.5 : 1.5} />
-      }
+      {allianceBorder === 'ally' ? <>
+        {mkShape({ fill: 'none', stroke: '#111', strokeWidth: 6 })}
+        {mkShape({ fill: color, stroke: '#00cc44', strokeWidth: 4 })}
+      </> : allianceBorder === 'enemy' ? <>
+        {mkShape({ fill: 'none', stroke: '#111', strokeWidth: 4 })}
+        {mkShape({ fill: color, stroke: '#cc2200', strokeWidth: 3 })}
+      </> : mkShape({ fill: color, stroke: selected ? '#ffcc00' : '#222', strokeWidth: selected ? 2.5 : 1.5 })}
       <text x={x} y={y + 4} textAnchor="middle" fontSize={11} fontWeight="bold" fill="white"
         style={{ pointerEvents: 'none', userSelect: 'none' }}>{type}</text>
     </g>
   );
 }
 
-export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set() }) {
+export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set(), alliedPowers = new Set(), enemyPowers = new Set() }) {
   const tList = Object.values(territories);
   const unitsByTerritory = {};
   units.forEach(u => {
@@ -253,6 +257,11 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
             key={unit.id}
             unit={unit}
             selected={selectedUnit !== null && selectedUnit.id === unit.id}
+            allianceBorder={
+              alliedPowers.has(unit.power) ? 'ally' :
+              enemyPowers.has(unit.power) ? 'enemy' :
+              null
+            }
           />
         ))}
       </g>

@@ -18,6 +18,11 @@ const TREATY_TYPES = [
     label: 'Demilitarization',
     desc: 'All parties agree to keep the listed territories free of their units.',
   },
+  {
+    id: 'alliance',
+    label: 'Alliance',
+    desc: 'A mutual defence pact between signing powers. Optionally designate shared adversaries.',
+  },
 ];
 
 // All non-impassable territories (land, coast, sea) — no coast variants
@@ -53,6 +58,7 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
   const [selectedParties, setSelectedParties] = useState([]);
   const [terrFilter, setTerrFilter] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [selectedAdversaries, setSelectedAdversaries] = useState([]);
   const [breakConfirm, setBreakConfirm] = useState(null); // treaty id pending break confirm
 
   // Subscribe to treaties subcollection
@@ -76,7 +82,7 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
   const awaitingMe = pendingTreaties.filter(t => myPower && !t.signatures.includes(myPower));
 
   useEffect(() => { onPendingChange?.(awaitingMe.length); }, [awaitingMe.length]);
-  useEffect(() => { onActiveTreaties?.(activeTreaties); }, [JSON.stringify(activeTreaties.map(t => ({ id: t.id, territories: t.territories, parties: t.parties, type: t.type })))]);
+  useEffect(() => { onActiveTreaties?.(activeTreaties); }, [JSON.stringify(activeTreaties.map(t => ({ id: t.id, territories: t.territories, parties: t.parties, type: t.type, adversaries: t.adversaries })))]);  
 
   async function handleSign(treaty) {
     const newSigs = [...new Set([...treaty.signatures, myPower])];
@@ -93,14 +99,16 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
   }
 
   async function handlePropose() {
-    if (!myPower || selectedParties.length === 0 || selectedTerritories.length === 0 || submitting) return;
+    const needsTerrs = treatyType === 'demilitarization';
+    if (!myPower || selectedParties.length === 0 || (needsTerrs && selectedTerritories.length === 0) || submitting) return;
     setSubmitting(true);
     try {
       await addDoc(collection(db, 'games', gameCode.toUpperCase(), 'treaties'), {
         type: treatyType,
         proposedBy: myPower,
         parties: [myPower, ...selectedParties],
-        territories: selectedTerritories,
+        territories: needsTerrs ? selectedTerritories : [],
+        adversaries: treatyType === 'alliance' ? selectedAdversaries.filter(p => !selectedParties.includes(p) && p !== myPower) : [],
         status: 'pending',
         signatures: [myPower], // proposer auto-signs
         year: year ?? null,
@@ -109,6 +117,7 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
       });
       setSelectedTerritories([]);
       setSelectedParties([]);
+      setSelectedAdversaries([]);
       setTerrFilter('');
       setShowCompose(false);
     } finally {
@@ -117,6 +126,7 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
   }
 
   const otherPowers = POWERS.filter(p => p !== myPower);
+  const adversaryChoices = POWERS.filter(p => p !== myPower && !selectedParties.includes(p));
   const filteredTerrs = LAND_TERRITORIES.filter(({ id, name }) =>
     terrFilter === '' ||
     id.includes(terrFilter.toLowerCase()) ||
@@ -150,9 +160,16 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
                   ))}
                 </div>
                 {/* Terms */}
-                <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.4 }}>
-                  No units in: <strong>{t.territories.map(displayId).join(', ')}</strong>
-                </div>
+                {t.type === 'demilitarization' && (
+                  <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.4 }}>
+                    No units in: <strong>{t.territories.map(displayId).join(', ')}</strong>
+                  </div>
+                )}
+                {t.type === 'alliance' && t.adversaries?.length > 0 && (
+                  <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.4 }}>
+                    Against: <strong style={{ color: '#b22' }}>{t.adversaries.join(', ')}</strong>
+                  </div>
+                )}
                 <div style={{ fontSize: 9, color: '#aaa', marginBottom: canAct ? 5 : 0 }}>
                   Signed {phaseLabel(t)} {t.year}
                 </div>
@@ -209,9 +226,16 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
                   })}
                 </div>
                 {/* Terms */}
-                <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.4 }}>
-                  No units in: <strong>{t.territories.map(displayId).join(', ')}</strong>
-                </div>
+                {t.type === 'demilitarization' && (
+                  <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.4 }}>
+                    No units in: <strong>{t.territories.map(displayId).join(', ')}</strong>
+                  </div>
+                )}
+                {t.type === 'alliance' && t.adversaries?.length > 0 && (
+                  <div style={{ fontSize: 10, color: '#444', marginBottom: 4, lineHeight: 1.4 }}>
+                    Against: <strong style={{ color: '#b22' }}>{t.adversaries.join(', ')}</strong>
+                  </div>
+                )}
                 <div style={{ fontSize: 9, color: '#aaa', marginBottom: needsMyAction ? 7 : 0 }}>
                   {phaseLabel(t)} {t.year} · {t.signatures.length}/{t.parties.length} signed
                 </div>
@@ -306,7 +330,8 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
             </div>
           </div>
 
-          {/* Territories */}
+          {/* Territories (demilitarization only) */}
+          {treatyType === 'demilitarization' && (
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#555', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Territories</div>
             <input
@@ -336,18 +361,41 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, onPe
               </div>
             )}
           </div>
+          )}
+
+          {/* Mutual enemies (alliance only, optional) */}
+          {treatyType === 'alliance' && (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#555', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Mutual Enemies <span style={{ fontSize: 9, fontWeight: 400, color: '#888' }}>(optional)</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {adversaryChoices.map(p => (
+                <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedAdversaries.includes(p)}
+                    onChange={() => setSelectedAdversaries(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])}
+                    style={{ margin: 0 }}
+                  />
+                  <span style={{ fontWeight: selectedAdversaries.includes(p) ? 700 : 400, color: POWER_COLOR[p] }}>{p}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          )}
 
           {/* Submit / Cancel */}
           <div style={{ display: 'flex', gap: 5 }}>
             <button
               onClick={handlePropose}
-              disabled={submitting || selectedParties.length === 0 || selectedTerritories.length === 0}
-              style={{ flex: 1, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer', background: '#7a5c10', color: '#fff', border: 'none', borderRadius: 3, opacity: (selectedParties.length === 0 || selectedTerritories.length === 0 || submitting) ? 0.5 : 1 }}
+              disabled={submitting || selectedParties.length === 0 || (treatyType === 'demilitarization' && selectedTerritories.length === 0)}
+              style={{ flex: 1, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer', background: '#7a5c10', color: '#fff', border: 'none', borderRadius: 3, opacity: (selectedParties.length === 0 || (treatyType === 'demilitarization' && selectedTerritories.length === 0) || submitting) ? 0.5 : 1 }}
             >
               {submitting ? 'Proposing…' : 'Propose Treaty'}
             </button>
             <button
-              onClick={() => { setShowCompose(false); setSelectedTerritories([]); setSelectedParties([]); setTerrFilter(''); }}
+              onClick={() => { setShowCompose(false); setSelectedTerritories([]); setSelectedParties([]); setSelectedAdversaries([]); setTerrFilter(''); }}
               style={{ padding: '7px 10px', fontSize: 11, cursor: 'pointer', background: '#eee', color: '#555', border: '1px solid #ccc', borderRadius: 3 }}
             >
               Cancel
