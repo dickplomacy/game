@@ -25,7 +25,7 @@ const POWER_COLOR = {
  *   { from, to: string[], body, year, phase, sentAt }
  *   to = [] means public (all powers can see it).
  */
-export default function Press({ gameCode, myPower, isAdmin, year, phase, onUnreadChange }) {
+export default function Press({ gameCode, myPower, isAdmin, year, phase, passivePowers = [], onUnreadChange }) {
   const [messages, setMessages] = useState([]);
   const [tab, setTab] = useState('inbox'); // 'inbox' | 'compose'
   const [body, setBody] = useState('');
@@ -98,7 +98,7 @@ export default function Press({ gameCode, myPower, isAdmin, year, phase, onUnrea
     }
   }
 
-  const otherPowers = POWERS.filter(p => p !== myPower);
+  const otherPowers = POWERS.filter(p => p !== myPower && !passivePowers.includes(p));
   const phaseLabel = phase ? phase.replace('-', ' ').replace(/\b\w/g, c => c.toUpperCase()) : '';
 
   return (
