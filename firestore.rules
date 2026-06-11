@@ -10,6 +10,11 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read, write: if true;
       }
+
+      // Treaties subcollection
+      match /treaties/{treatyId} {
+        allow read, write: if true;
+      }
     }
   }
 }

@@ -6,6 +6,7 @@ import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submit
 import { checkWinner, POWERS, SC_IDS } from "./winCondition";
 import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits } from "./adjustments";
 import Press from "./Press";
+import Treaties from "./Treaties";
 
 // Format a territory id for display: 'stp-sc' → 'STP/SC', 'lon' → 'LON'
 function displayId(id) {
@@ -164,9 +165,10 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // Local staging area for winter adjustment orders before submission
   const [winterOrders, setWinterOrders] = useState({ builds: [], disbands: [] });
 
-  // Press panel: which sidebar tab is active, and unread message count
-  const [showPress, setShowPress] = useState(false);
+  // Sidebar tab: 'orders' | 'press' | 'treaties'
+  const [sidebarTab, setSidebarTab] = useState('orders');
   const [pressUnread, setPressUnread] = useState(0);
+  const [treatiesPending, setTreatiesPending] = useState(0);
 
   // Responsive layout: column on narrow screens
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
@@ -578,16 +580,20 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
           {isMultiplayer && (
             <div style={{ display: 'flex', flexShrink: 0, marginBottom: 4 }}>
               <button
-                onClick={() => setShowPress(false)}
-                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: !showPress ? '#1a1a2e' : '#eee', color: !showPress ? '#fff' : '#555', border: 'none', borderRight: '1px solid #ddd', borderRadius: '3px 0 0 3px' }}
+                onClick={() => setSidebarTab('orders')}
+                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: sidebarTab === 'orders' ? '#1a1a2e' : '#eee', color: sidebarTab === 'orders' ? '#fff' : '#555', border: 'none', borderRight: '1px solid #ddd', borderRadius: '3px 0 0 3px' }}
               >Orders</button>
               <button
-                onClick={() => setShowPress(true)}
-                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: showPress ? '#1a1a2e' : '#eee', color: showPress ? '#fff' : '#555', border: 'none', borderRadius: '0 3px 3px 0' }}
+                onClick={() => setSidebarTab('press')}
+                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: sidebarTab === 'press' ? '#1a1a2e' : '#eee', color: sidebarTab === 'press' ? '#fff' : '#555', border: 'none', borderRight: '1px solid #ddd', borderRadius: 0 }}
               >Press{pressUnread > 0 && <span style={{ marginLeft: 3, background: '#b22', color: '#fff', borderRadius: 7, padding: '0 4px', fontSize: 9 }}>{pressUnread}</span>}</button>
+              <button
+                onClick={() => setSidebarTab('treaties')}
+                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: sidebarTab === 'treaties' ? '#1a1a2e' : '#eee', color: sidebarTab === 'treaties' ? '#fff' : '#555', border: 'none', borderRadius: '0 3px 3px 0' }}
+              >Treaty{treatiesPending > 0 && <span style={{ marginLeft: 3, background: '#b22', color: '#fff', borderRadius: 7, padding: '0 4px', fontSize: 9 }}>{treatiesPending}</span>}</button>
             </div>
           )}
-          {!showPress && (retreatPhase ? (
+          {sidebarTab === 'orders' && (retreatPhase ? (
             <>
               <div style={{ fontWeight: 700, fontSize: 12, color: '#b22', letterSpacing: '0.03em', padding: '4px 0' }}>⚠ RETREAT PHASE</div>
               <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -779,7 +785,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               </div>
             </>
           ))}
-          {showPress && isMultiplayer && (
+          {sidebarTab === 'press' && isMultiplayer && (
             <Press
               gameCode={gameCode}
               myPower={myPower}
@@ -787,6 +793,16 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               year={gameData?.year}
               phase={gameData?.phase}
               onUnreadChange={setPressUnread}
+            />
+          )}
+          {sidebarTab === 'treaties' && isMultiplayer && (
+            <Treaties
+              gameCode={gameCode}
+              myPower={myPower}
+              isAdmin={isAdmin}
+              year={gameData?.year}
+              phase={gameData?.phase}
+              onPendingChange={setTreatiesPending}
             />
           )}
         </div>
