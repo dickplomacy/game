@@ -200,9 +200,13 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       setWinterPhase(gameData.winterPhase ?? null);
       if (!gameData.winterPhase) setWinterOrders({ builds: [], disbands: [] });
     }
-    // Reset local orders when a new turn starts (orders cleared server-side)
-    if (isMultiplayer && gameData.orders && Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
-      setOrders({});
+    // Sync local orders from Firestore: restore submitted orders on refresh, clear on new turn
+    if (isMultiplayer && gameData.orders) {
+      if (Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
+        setOrders({});
+      } else if (myPower && gameData.orders[myPower]) {
+        setOrders(gameData.orders[myPower]);
+      }
     }
   }, [gameData]);
 
