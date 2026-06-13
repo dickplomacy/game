@@ -160,8 +160,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [coastChoice, setCoastChoice] = useState(null); // { unitId, coasts: [id, ...] } — pending coast selection
   // retreatPhase: null | { dislodged: [{unit, retreatOptions}], retreatOrders: {unitId: destId|'disband'} }
   const [retreatPhase, setRetreatPhase] = useState(null);
-  // Whether this player has submitted orders to Firestore this turn
-  const [submitted, setSubmitted] = useState(false);
+  // Whether this player has submitted orders — derived from Firestore so it survives refresh
+  const submitted = isMultiplayer && myPower ? !!gameData?.orders?.[myPower] : false;
   const [submitting, setSubmitting] = useState(false);
   // winterPhase: null | { adjustments: {POWER: number}, orders: {POWER: {builds, disbands}} }
   const [winterPhase, setWinterPhase] = useState(null);
@@ -189,8 +189,6 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (!gameData) return;
     if (gameData.units) setUnits(gameData.units);
     if (gameData.owners) setOwners(gameData.owners);
-    // Reset submitted flag when orders for our power are cleared (new turn)
-    if (myPower && !gameData.orders?.[myPower]) setSubmitted(false);
     // Sync retreat phase from Firestore (null clears local retreat phase too)
     if (gameData.retreatPhase !== undefined) {
       setRetreatPhase(gameData.retreatPhase
@@ -350,7 +348,6 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     setSubmitting(true);
     try {
       await submitOrders(gameCode, myPower, orders);
-      setSubmitted(true);
     } finally {
       setSubmitting(false);
     }
@@ -360,7 +357,6 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (!gameCode || !myPower) return;
     await clearOrders(gameCode, myPower);
     setOrders({});
-    setSubmitted(false);
   }
 
   function cancelOrder(unitId) {
