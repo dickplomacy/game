@@ -43,6 +43,10 @@ import {
   setDoc,
   updateDoc,
   serverTimestamp,
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
 } from 'firebase/firestore';
 
 import territories from './territories.json';
@@ -289,4 +293,16 @@ export async function setCountryLock(gameCode, power, locked) {
     ? [...new Set([...current, power])]
     : current.filter(p => p !== power);
   await updateDoc(ref, { 'settings.lockedPowers': updated, updatedAt: serverTimestamp() });
+}
+
+/**
+ * Subscribe to the treaties subcollection. Returns an unsubscribe function.
+ * callback receives an array of treaty objects (with id field).
+ */
+export function onTreatiesSnapshot(gameCode, callback) {
+  const q = query(
+    collection(db, 'games', gameCode.toUpperCase(), 'treaties'),
+    orderBy('createdAt', 'asc'),
+  );
+  return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 }

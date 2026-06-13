@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
-  collection, query, orderBy, onSnapshot,
+  collection,
   addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -55,8 +55,7 @@ function phaseLabel(t) {
  * - When all parties have signed → status becomes 'active'.
  * - Any party (or admin) deleting → removes the document entirely.
  */
-export default function Treaties({ gameCode, myPower, isAdmin, year, phase, passivePowers = [], onPendingChange, onActiveTreaties }) {
-  const [treaties, setTreaties] = useState([]);
+export default function Treaties({ gameCode, myPower, isAdmin, year, phase, passivePowers = [], allTreaties = [] }) {
   const [showCompose, setShowCompose] = useState(false);
   const [treatyType, setTreatyType] = useState('demilitarization');
   const [selectedTerritories, setSelectedTerritories] = useState([]);
@@ -67,28 +66,13 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, pass
   const [claimsMap, setClaimsMap] = useState({}); // { [power]: string[] } for 'claims' type
   const [breakConfirm, setBreakConfirm] = useState(null);
 
-  // Subscribe to treaties subcollection
-  useEffect(() => {
-    if (!gameCode) return;
-    const q = query(
-      collection(db, 'games', gameCode.toUpperCase(), 'treaties'),
-      orderBy('createdAt', 'asc'),
-    );
-    return onSnapshot(q, snap => {
-      setTreaties(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-  }, [gameCode]);
-
-  const visibleTreaties = treaties.filter(t =>
+  const visibleTreaties = allTreaties.filter(t =>
     isAdmin || (myPower && t.parties.includes(myPower))
   );
 
   const activeTreaties = visibleTreaties.filter(t => t.status === 'active');
   const pendingTreaties = visibleTreaties.filter(t => t.status === 'pending');
   const awaitingMe = pendingTreaties.filter(t => myPower && !t.signatures.includes(myPower));
-
-  useEffect(() => { onPendingChange?.(awaitingMe.length); }, [awaitingMe.length]);
-  useEffect(() => { onActiveTreaties?.(activeTreaties); }, [JSON.stringify(activeTreaties.map(t => ({ id: t.id, territories: t.territories, parties: t.parties, type: t.type, adversaries: t.adversaries })))]);  
 
   async function handleSign(treaty) {
     const newSigs = [...new Set([...treaty.signatures, myPower])];

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock } from "./gameService";
+import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
 import { checkWinner, POWERS, SC_IDS } from "./winCondition";
 import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits } from "./adjustments";
 import Press from "./Press";
@@ -171,10 +171,18 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // Sidebar tab: 'orders' | 'press' | 'treaties'
   const [sidebarTab, setSidebarTab] = useState('orders');
   const [pressUnread, setPressUnread] = useState(0);
-  const [treatiesPending, setTreatiesPending] = useState(0);
-  const [activeTreaties, setActiveTreaties] = useState([]);
   const [showLinks, setShowLinks] = useState(false);
   const [copiedAdminLink, setCopiedAdminLink] = useState(null);
+  // All treaties — subscribed here (not in Treaties tab) so map borders are always current
+  const [allTreaties, setAllTreaties] = useState([]);
+  useEffect(() => {
+    if (!gameCode) return;
+    return onTreatiesSnapshot(gameCode, setAllTreaties);
+  }, [gameCode]);
+  const visibleTreaties = allTreaties.filter(t => isAdmin || (myPower && t.parties.includes(myPower)));
+  const activeTreaties = visibleTreaties.filter(t => t.status === 'active');
+  const pendingTreaties = visibleTreaties.filter(t => t.status === 'pending');
+  const treatiesPendingCount = pendingTreaties.filter(t => myPower && !t.signatures.includes(myPower)).length;
 
   // Responsive layout: column on narrow screens
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
@@ -596,7 +604,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               <button
                 onClick={() => setSidebarTab('treaties')}
                 style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: sidebarTab === 'treaties' ? '#1a1a2e' : '#eee', color: sidebarTab === 'treaties' ? '#fff' : '#555', border: 'none', borderRadius: '0 3px 3px 0' }}
-              >Treaty{treatiesPending > 0 && <span style={{ marginLeft: 3, background: '#b22', color: '#fff', borderRadius: 7, padding: '0 4px', fontSize: 9 }}>{treatiesPending}</span>}</button>
+              >Treaty{treatiesPendingCount > 0 && <span style={{ marginLeft: 3, background: '#b22', color: '#fff', borderRadius: 7, padding: '0 4px', fontSize: 9 }}>{treatiesPendingCount}</span>}</button>
             </div>
           )}
           {sidebarTab === 'orders' && (retreatPhase ? (
@@ -848,8 +856,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               year={gameData?.year}
               phase={gameData?.phase}
               passivePowers={passivePowers}
-              onPendingChange={setTreatiesPending}
-              onActiveTreaties={setActiveTreaties}
+              allTreaties={allTreaties}
             />
           )}
         </div>
