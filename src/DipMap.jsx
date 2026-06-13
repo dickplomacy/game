@@ -205,6 +205,9 @@ function UnitSymbol({ unit, selected, allianceBorder = null }) {
       </> : allianceBorder === 'enemy' ? <>
         {mkShape({ fill: 'none', stroke: '#111', strokeWidth: 4 })}
         {mkShape({ fill: color, stroke: '#cc2200', strokeWidth: 3 })}
+      </> : allianceBorder === 'conflict' ? <>
+        {mkShape({ fill: 'none', stroke: '#111', strokeWidth: 4 })}
+        {mkShape({ fill: color, stroke: '#ff8800', strokeWidth: 3 })}
       </> : mkShape({ fill: color, stroke: selected ? '#ffcc00' : '#222', strokeWidth: selected ? 2.5 : 1.5 })}
       <text x={x} y={y + 4} textAnchor="middle" fontSize={11} fontWeight="bold" fill="white"
         style={{ pointerEvents: 'none', userSelect: 'none' }}>{type}</text>
@@ -212,7 +215,7 @@ function UnitSymbol({ unit, selected, allianceBorder = null }) {
   );
 }
 
-export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set(), alliedPowers = new Set(), enemyPowers = new Set(), claimBorders = {} }) {
+export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set(), alliedPowers = new Set(), enemyPowers = new Set(), conflictPowers = new Set(), claimBorders = {} }) {
   const tList = Object.values(territories);
   const unitsByTerritory = {};
   units.forEach(u => {
@@ -293,7 +296,7 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
       {Object.keys(claimBorders).length > 0 && (
         <g transform="translate(-195 -170)" style={{ pointerEvents: 'none' }}>
           {Object.values(territories).filter(t => claimBorders[t.id] && t.svg).map(t => {
-            const color = POWER_COLORS[claimBorders[t.id]] || '#999';
+            const color = claimBorders[t.id] === 'CONFLICT' ? '#ff8800' : (POWER_COLORS[claimBorders[t.id]] || '#999');
             const props = { fill: 'none', stroke: color, strokeWidth: 4 };
             if (Array.isArray(t.svg)) {
               return <g key={t.id}>{t.svg.map((d, i) => <path key={i} d={d} {...props} />)}</g>;
@@ -312,6 +315,7 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
             unit={unit}
             selected={selectedUnit !== null && selectedUnit.id === unit.id}
             allianceBorder={
+              conflictPowers.has(unit.power) ? 'conflict' :
               alliedPowers.has(unit.power) ? 'ally' :
               enemyPowers.has(unit.power) ? 'enemy' :
               null

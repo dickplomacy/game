@@ -873,21 +873,51 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   .filter(t => t.type === 'demilitarization' && (isAdmin || (myPower && t.parties.includes(myPower))))
                   .flatMap(t => t.territories)
               )}
-              alliedPowers={new Set(
+              alliedPowers={(() => {
+                const allies = new Set();
+                const enemies = new Set();
                 activeTreaties
                   .filter(t => t.type === 'alliance' && myPower && t.parties.includes(myPower))
-                  .flatMap(t => t.parties.filter(p => p !== myPower))
-              )}
-              enemyPowers={new Set(
+                  .forEach(t => {
+                    t.parties.filter(p => p !== myPower).forEach(p => allies.add(p));
+                    (t.adversaries || []).forEach(p => enemies.add(p));
+                  });
+                // Remove powers that appear in both (they become orange via conflictPowers)
+                enemies.forEach(p => allies.delete(p));
+                return allies;
+              })()}
+              enemyPowers={(() => {
+                const allies = new Set();
+                const enemies = new Set();
                 activeTreaties
                   .filter(t => t.type === 'alliance' && myPower && t.parties.includes(myPower))
-                  .flatMap(t => t.adversaries || [])
-              )}
+                  .forEach(t => {
+                    t.parties.filter(p => p !== myPower).forEach(p => allies.add(p));
+                    (t.adversaries || []).forEach(p => enemies.add(p));
+                  });
+                enemies.forEach(p => { if (allies.has(p)) allies.delete(p); });
+                return enemies;
+              })()}
+              conflictPowers={(() => {
+                const allies = new Set();
+                const enemies = new Set();
+                activeTreaties
+                  .filter(t => t.type === 'alliance' && myPower && t.parties.includes(myPower))
+                  .forEach(t => {
+                    t.parties.filter(p => p !== myPower).forEach(p => allies.add(p));
+                    (t.adversaries || []).forEach(p => enemies.add(p));
+                  });
+                return new Set([...allies].filter(p => enemies.has(p)));
+              })()}
               claimBorders={(() => {
+                const counts = {};
                 const m = {};
                 activeTreaties
                   .filter(t => t.type === 'claims' && (isAdmin || (myPower && t.parties.includes(myPower))))
-                  .forEach(t => Object.entries(t.claims || {}).forEach(([p, ids]) => ids.forEach(id => { m[id] = p; })));
+                  .forEach(t => Object.entries(t.claims || {}).forEach(([p, ids]) => ids.forEach(id => {
+                    counts[id] = (counts[id] || 0) + 1;
+                    m[id] = counts[id] > 1 ? 'CONFLICT' : p;
+                  })));
                 return m;
               })()}
             />
