@@ -14,6 +14,8 @@ export default function GameBoard() {
   useEffect(() => {
     const ref = doc(db, 'games', gameCode.toUpperCase());
     const unsub = onSnapshot(ref, snap => {
+      // Ignore stale cache reads — only trust server-confirmed data for auth decisions
+      if (snap.metadata.fromCache) return;
       if (!snap.exists()) { setStatus('invalid'); return; }
       const data = snap.data();
       const r = getRoleForToken(data, playerToken);
