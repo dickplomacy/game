@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { getRoleForToken } from './gameService';
 import App from './App.jsx';
@@ -13,18 +13,25 @@ export default function GameBoard() {
 
   useEffect(() => {
     const ref = doc(db, 'games', gameCode.toUpperCase());
-    const unsub = onSnapshot(ref, snap => {
-      // Ignore stale cache reads — only trust server-confirmed data for auth decisions
-      if (snap.metadata.fromCache) return;
+    
+    // First: do one-time server-read validation via getDoc (bypasses cache for auth check)
+    getDoc(ref).then(snap => {
       if (!snap.exists()) { setStatus('invalid'); return; }
       const data = snap.data();
       const r = getRoleForToken(data, playerToken);
       if (!r) { setStatus('invalid'); return; }
+      // Auth passed, now subscribe for realtime updates
       setRole(r);
       setGameData(data);
       setStatus('ready');
-    }, () => setStatus('invalid'));
-    return unsub;
+      // Continue to listen for realtime updates
+      const unsub = onSnapshot(ref, snap => {
+        if (snap.exists()) {
+          setGameData(snap.data());
+        }
+      });
+      return unsub;
+    }).catch(() => setStatus('invalid'));
   }, [gameCode, playerToken]);
 
   if (status === 'loading') {
