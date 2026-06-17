@@ -1,6 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDocFromServer, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { getRoleForToken } from './gameService';
 import App from './App.jsx';
@@ -14,8 +14,8 @@ export default function GameBoard() {
   useEffect(() => {
     const ref = doc(db, 'games', gameCode.toUpperCase());
     
-    // First: do one-time server-read validation via getDoc (bypasses cache for auth check)
-    getDoc(ref).then(snap => {
+    // Force server read (not cache) for auth validation
+    getDocFromServer(ref).then(snap => {
       if (!snap.exists()) { setStatus('invalid'); return; }
       const data = snap.data();
       const r = getRoleForToken(data, playerToken);
