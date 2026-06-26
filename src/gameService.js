@@ -37,6 +37,7 @@
  */
 
 import { db } from './firebase';
+import { POWERS } from './winCondition';
 import {
   doc,
   getDoc,
