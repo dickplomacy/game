@@ -48,9 +48,7 @@ export default function JoinGame() {
     }
   }
 
-  function handlePickPower(power) {
-    const token = game?.players?.[power];
-    if (!token) return;
+  function handlePickSlot(token) {
     navigate(`/${foundCode}/${token}`);
   }
 
@@ -109,33 +107,44 @@ export default function JoinGame() {
               GAME <strong style={{ color: '#111' }}>{foundCode}</strong> — choose your country
             </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {POWERS
-                .filter(power => !game.settings?.passivePowers?.includes(power))
-                .map(power => {
-                const isLocked = game.settings?.lockedPowers?.includes(power);
-                return (
-                <button
-                  key={power}
-                  onClick={() => !isLocked && handlePickPower(power)}
-                  disabled={isLocked}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '8px 12px', border: 'none', borderRadius: 6,
-                    cursor: isLocked ? 'not-allowed' : 'pointer',
-                    background: isLocked ? '#ccc' : POWER_COLOR[power], color: '#fff',
-                    fontWeight: 700, fontSize: 14, letterSpacing: '0.04em',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-                    opacity: isLocked ? 0.55 : 1,
-                    transition: 'opacity 0.1s',
-                  }}
-                  onMouseEnter={e => { if (!isLocked) e.currentTarget.style.opacity = '0.85'; }}
-                  onMouseLeave={e => { if (!isLocked) e.currentTarget.style.opacity = '1'; }}
-                >
-                  <img src={FLAGS[power]} alt={power} style={{ height: 20, width: 30, objectFit: 'cover', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
-                  {power}{isLocked && ' 🔒'}
-                </button>
-              );
-            })}
+              {(() => {
+                const activePowersList = POWERS.filter(p => !game.settings?.passivePowers?.includes(p));
+                const tokenSlotMap = {};
+                activePowersList.forEach(p => {
+                  const token = game?.players?.[p];
+                  if (!token) return;
+                  if (!tokenSlotMap[token]) tokenSlotMap[token] = [];
+                  tokenSlotMap[token].push(p);
+                });
+                return Object.entries(tokenSlotMap).map(([token, powers]) => {
+                  const isLocked = powers.every(p => game.settings?.lockedPowers?.includes(p));
+                  return (
+                    <button
+                      key={token}
+                      onClick={() => !isLocked && handlePickSlot(token)}
+                      disabled={isLocked}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '8px 12px', border: 'none', borderRadius: 6,
+                        cursor: isLocked ? 'not-allowed' : 'pointer',
+                        background: isLocked ? '#ccc' : POWER_COLOR[powers[0]], color: '#fff',
+                        fontWeight: 700, fontSize: 14, letterSpacing: '0.04em',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                        opacity: isLocked ? 0.55 : 1,
+                        transition: 'opacity 0.1s',
+                        flexWrap: 'wrap',
+                      }}
+                      onMouseEnter={e => { if (!isLocked) e.currentTarget.style.opacity = '0.85'; }}
+                      onMouseLeave={e => { if (!isLocked) e.currentTarget.style.opacity = '1'; }}
+                    >
+                      {powers.map(p => (
+                        <img key={p} src={FLAGS[p]} alt={p} style={{ height: 20, width: 30, objectFit: 'cover', borderRadius: 2, border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 }} />
+                      ))}
+                      {powers.join(' + ')}{isLocked && ' 🔒'}
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </>
         )}

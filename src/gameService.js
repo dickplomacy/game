@@ -131,10 +131,21 @@ export async function createGame(settings = {}) {
     throw new Error('Could not generate a unique game code. Try again.');
   }
 
-  // Generate one token per role
-  const roles = ['ADMIN', 'AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'];
-  const players = {};
-  roles.forEach(role => { players[role] = randomCode(4); });
+  // Generate tokens: each player slot gets one shared token; passive powers get individual tokens
+  // powerSlots: { [power]: slotKey } — active powers with same slotKey share a token
+  const pSlots = settings.powerSlots ?? {};
+  const activePowersForGame = POWERS.filter(p => !settings.passivePowers?.includes(p));
+  const slotKeys = [...new Set(activePowersForGame.map(p => pSlots[p] ?? p))];
+  const slotTokens = {};
+  slotKeys.forEach(key => { slotTokens[key] = randomCode(4); });
+  const players = { ADMIN: randomCode(4) };
+  POWERS.forEach(power => {
+    if (settings.passivePowers?.includes(power)) {
+      players[power] = randomCode(4);
+    } else {
+      players[power] = slotTokens[pSlots[power] ?? power];
+    }
+  });
 
   // Build initial owners from starting unit positions on top of the static map
   const owners = { ...INITIAL_OWNERS };
@@ -202,8 +213,12 @@ export async function clearOrders(gameCode, power) {
  */
 export function getRoleForToken(game, token) {
   if (!game?.players) return null;
-  const entry = Object.entries(game.players).find(([, t]) => t === token);
-  return entry ? entry[0] : null;
+  if (game.players.ADMIN === token) return 'ADMIN';
+  const powers = Object.entries(game.players)
+    .filter(([role, t]) => role !== 'ADMIN' && t === token)
+    .map(([role]) => role);
+  if (powers.length === 0) return null;
+  return powers.length === 1 ? powers[0] : powers;
 }
 
 /**

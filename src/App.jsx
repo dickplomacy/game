@@ -144,8 +144,10 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // isMultiplayer: true when loaded via a game link
   const isMultiplayer = !!gameCode;
   const isAdmin = role === 'ADMIN';
-  // The power this player controls (null for admin/observer)
-  const myPower = (role && role !== 'ADMIN') ? role : null;
+  // myPowers: all powers this player controls (empty for admin/observer)
+  const myPowers = role && role !== 'ADMIN' ? (Array.isArray(role) ? role : [role]) : [];
+  // Primary power for press/treaties/retreat context
+  const myPower = myPowers[0] ?? null;
   const passivePowers = gameData?.settings?.passivePowers ?? [];
   const lockedPowers = gameData?.settings?.lockedPowers ?? [];
   const activePowers = POWERS.filter(p => !passivePowers.includes(p));
@@ -160,13 +162,13 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [coastChoice, setCoastChoice] = useState(null); // { unitId, coasts: [id, ...] } — pending coast selection
   // retreatPhase: null | { dislodged: [{unit, retreatOptions}], retreatOrders: {unitId: destId|'disband'} }
   const [retreatPhase, setRetreatPhase] = useState(null);
-  // Whether this player has submitted orders — derived from Firestore so it survives refresh
-  const submitted = isMultiplayer && myPower ? !!gameData?.orders?.[myPower] : false;
+  // Whether this player has submitted orders — all controlled powers must have submitted
+  const submitted = isMultiplayer && myPowers.length > 0 ? myPowers.every(p => !!gameData?.orders?.[p]) : false;
   const [submitting, setSubmitting] = useState(false);
   // winterPhase: null | { adjustments: {POWER: number}, orders: {POWER: {builds, disbands}} }
   const [winterPhase, setWinterPhase] = useState(null);
-  // Local staging area for winter adjustment orders before submission
-  const [winterOrders, setWinterOrders] = useState({ builds: [], disbands: [] });
+  // Local staging area for winter adjustment orders before submission — keyed by power
+  const [winterOrders, setWinterOrders] = useState({}); // { [power]: { builds: [], disbands: [] } }
 
   // Sidebar tab: 'orders' | 'press' | 'treaties'
   const [sidebarTab, setSidebarTab] = useState('orders');
@@ -179,7 +181,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (!gameCode) return;
     return onTreatiesSnapshot(gameCode, setAllTreaties);
   }, [gameCode]);
-  const visibleTreaties = allTreaties.filter(t => isAdmin || (myPower && t.parties.includes(myPower)));
+  const visibleTreaties = allTreaties.filter(t => isAdmin || myPowers.some(p => t.parties.includes(p)));
   const activeTreaties = visibleTreaties.filter(t => t.status === 'active');
   const pendingTreaties = visibleTreaties.filter(t => t.status === 'pending');
   const treatiesPendingCount = pendingTreaties.filter(t => myPower && !t.signatures.includes(myPower)).length;
@@ -206,14 +208,16 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     // Sync winter phase from Firestore
     if (gameData.winterPhase !== undefined) {
       setWinterPhase(gameData.winterPhase ?? null);
-      if (!gameData.winterPhase) setWinterOrders({ builds: [], disbands: [] });
+      if (!gameData.winterPhase) setWinterOrders({});
     }
     // Sync local orders from Firestore: restore submitted orders on refresh, clear on new turn
     if (isMultiplayer && gameData.orders) {
       if (Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
         setOrders({});
-      } else if (myPower && gameData.orders[myPower]) {
-        setOrders(gameData.orders[myPower]);
+      } else if (myPowers.length > 0) {
+        const merged = {};
+        myPowers.forEach(p => { if (gameData.orders[p]) Object.assign(merged, gameData.orders[p]); });
+        if (Object.keys(merged).length > 0) setOrders(merged);
       }
     }
   }, [gameData]);
@@ -277,7 +281,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (mode === 'support') {
       if (!selectedUnit) {
         const unit = findUnit(id);
-        if (myPower && unit?.power !== myPower) return;
+        if (myPowers.length > 0 && !myPowers.includes(unit?.power)) return;
         setSelectedUnit(unit);
       } else if (!supportTarget) {
         // Step 2: pick the unit to support
@@ -303,7 +307,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         // Step 1: pick a fleet in a water territory (must be own power's unit)
         const unit = findUnit(id);
         if (unit && unit.type === 'F' && territories[unit.id] && territories[unit.id].type === 'water') {
-          if (myPower && unit.power !== myPower) return;
+          if (myPowers.length > 0 && !myPowers.includes(unit.power)) return;
           setSelectedUnit(unit);
         }
       } else if (!convoyArmy) {
@@ -350,24 +354,32 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       }
     } else {
       const unit = findUnit(id);
-      if (myPower && unit?.power !== myPower) return;
+      if (myPowers.length > 0 && !myPowers.includes(unit?.power)) return;
       setSelectedUnit(unit);
     }
   }
 
   async function handleSubmitOrders() {
-    if (!gameCode || !myPower) return;
+    if (!gameCode || myPowers.length === 0) return;
     setSubmitting(true);
     try {
-      await submitOrders(gameCode, myPower, orders);
+      for (const power of myPowers) {
+        const powerOrders = {};
+        units.filter(u => u.power === power).forEach(u => {
+          if (orders[u.id]) powerOrders[u.id] = orders[u.id];
+        });
+        await submitOrders(gameCode, power, powerOrders);
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
   async function handleClearOrders() {
-    if (!gameCode || !myPower) return;
-    await clearOrders(gameCode, myPower);
+    if (!gameCode || myPowers.length === 0) return;
+    for (const power of myPowers) {
+      await clearOrders(gameCode, power);
+    }
     setOrders({});
   }
 
@@ -466,8 +478,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   }
 
   async function handleSubmitRetreatsMultiplayer() {
-    if (!gameCode || !myPower || !retreatPhase) return;
-    const myDislodged = retreatPhase.dislodged.filter(d => d.unit.power === myPower);
+    if (!gameCode || myPowers.length === 0 || !retreatPhase) return;
+    const myDislodged = retreatPhase.dislodged.filter(d => myPowers.includes(d.unit.power));
     const myOrders = {};
     myDislodged.forEach(({ unit }) => {
       myOrders[unit.id] = retreatPhase.retreatOrders[unit.id] ?? 'disband';
@@ -476,8 +488,14 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   }
 
   async function handleSubmitWinterOrders() {
-    if (!gameCode || !myPower || !winterPhase) return;
-    await submitWinterOrders(gameCode, myPower, winterOrders.builds, winterOrders.disbands);
+    if (!gameCode || myPowers.length === 0 || !winterPhase) return;
+    for (const power of myPowers) {
+      const adj = winterPhase.adjustments?.[power] ?? 0;
+      if (adj !== 0 && !winterPhase.orders?.[power]) {
+        const pOrders = winterOrders[power] ?? { builds: [], disbands: [] };
+        await submitWinterOrders(gameCode, power, pOrders.builds, pOrders.disbands);
+      }
+    }
   }
 
   async function resolveWinterMultiplayer() {
@@ -569,10 +587,14 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       <div style={{ textAlign: 'center', margin: '0.5rem 0 0', flexShrink: 0, userSelect: 'none', lineHeight: 1.1 }}>
         <h1 style={{ margin: 0, fontSize: '2.2rem', fontFamily: '"Cinzel Decorative", serif', fontWeight: 700, letterSpacing: '0.04em' }}>Dickplomacy</h1>
         {phaseLabel && <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>{phaseLabel}</div>}
-        {myPower && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 5, background: POWER_COLOR[myPower], color: '#fff', padding: '3px 12px 3px 6px', borderRadius: 20, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em' }}>
-            <img src={FLAGS[myPower]} alt={myPower} style={{ height: 18, width: 27, objectFit: 'cover', borderRadius: 2, boxShadow: '0 0 0 1px rgba(0,0,0,0.25)', flexShrink: 0 }} />
-            {myPower}
+        {myPowers.length > 0 && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 5 }}>
+            {myPowers.map((p, i) => (
+              <div key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: POWER_COLOR[p], color: '#fff', padding: '3px 12px 3px 6px', borderRadius: 20, fontSize: 13, fontWeight: 700, letterSpacing: '0.06em', ...(i > 0 ? { marginLeft: -6, border: '2px solid #fff' } : {}) }}>
+                <img src={FLAGS[p]} alt={p} style={{ height: 18, width: 27, objectFit: 'cover', borderRadius: 2, boxShadow: '0 0 0 1px rgba(0,0,0,0.25)', flexShrink: 0 }} />
+                {p}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -613,7 +635,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               <div style={{ overflowY: 'auto', flex: 1 }}>
                 {retreatPhase.dislodged.map(({ unit, retreatOptions }) => {
                   const chosenDest = retreatPhase.retreatOrders[unit.id];
-                  const canEdit = !isMultiplayer || (unit.power === myPower);
+                  const canEdit = !isMultiplayer || myPowers.includes(unit.power);
                   const lockedInFirestore = isMultiplayer && !!gameData?.retreatPhase?.retreatOrders?.[unit.id];
                   const interactive = canEdit && !lockedInFirestore;
                   return (
@@ -636,7 +658,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                 isAdmin ? (
                   <button onClick={resolveRetreatsMultiplayer} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}>▶ Resolve Retreats</button>
                 ) : (() => {
-                  const myDislodged = retreatPhase.dislodged.filter(d => d.unit.power === myPower);
+                  const myDislodged = retreatPhase.dislodged.filter(d => myPowers.includes(d.unit.power));
                   if (myDislodged.length === 0) return <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '6px 0' }}>Waiting for retreat resolution…</div>;
                   const retreatSubmitted = myDislodged.every(d => gameData?.retreatPhase?.retreatOrders?.[d.unit.id]);
                   if (retreatSubmitted) return <div style={{ padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>✓ Retreat Submitted</div>;
@@ -654,7 +676,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                 {POWERS.map(power => {
                   const adj = winterPhase.adjustments?.[power] ?? 0;
                   const submitted = !!winterPhase.orders?.[power];
-                  const isMe = power === myPower;
+                  const isMe = myPowers.includes(power);
                   const availSCs = getAvailableBuildSCs(power, owners, units);
                   return (
                     <div key={power} style={{ borderLeft: `3px solid ${POWER_COLOR[power]}`, paddingLeft: 7, marginBottom: 8 }}>
@@ -668,14 +690,15 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                         <div>
                           {availSCs.length === 0 && <div style={{ fontSize: 10, color: '#888' }}>No available home SCs</div>}
                           {availSCs.map(sc => {
-                            const existing = winterOrders.builds.find(b => b.territory === sc);
+                            const pWO = winterOrders[power] ?? { builds: [], disbands: [] };
+                            const existing = pWO.builds.find(b => b.territory === sc);
                             const canFleet = territories[sc]?.type !== 'land';
-                            const atLimit = !existing && winterOrders.builds.length >= adj;
+                            const atLimit = !existing && pWO.builds.length >= adj;
                             return (
                               <div key={sc} style={{ display: 'flex', gap: 3, alignItems: 'center', marginBottom: 2 }}>
                                 <span style={{ fontSize: 10, width: 28 }}>{displayId(sc)}</span>
                                 {['A', canFleet ? 'F' : null].filter(Boolean).map(t => (
-                                  <button key={t} onClick={() => { if (atLimit && existing?.type !== t) return; setWinterOrders(prev => { const without = prev.builds.filter(b => b.territory !== sc); return existing?.type === t ? { ...prev, builds: without } : { ...prev, builds: [...without, { territory: sc, type: t }] }; }); }} style={{ padding: '2px 5px', fontSize: 10, background: existing?.type === t ? '#1a1a2e' : '#eee', color: existing?.type === t ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 2, cursor: (atLimit && existing?.type !== t) ? 'default' : 'pointer', opacity: (atLimit && existing?.type !== t) ? 0.4 : 1 }}>{t}</button>
+                                  <button key={t} onClick={() => { if (atLimit && existing?.type !== t) return; setWinterOrders(prev => { const cur = prev[power] ?? { builds: [], disbands: [] }; const without = cur.builds.filter(b => b.territory !== sc); return { ...prev, [power]: { ...cur, builds: existing?.type === t ? without : [...without, { territory: sc, type: t }] } }; }); }} style={{ padding: '2px 5px', fontSize: 10, background: existing?.type === t ? '#1a1a2e' : '#eee', color: existing?.type === t ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 2, cursor: (atLimit && existing?.type !== t) ? 'default' : 'pointer', opacity: (atLimit && existing?.type !== t) ? 0.4 : 1 }}>{t}</button>
                                 ))}
                               </div>
                             );
@@ -686,9 +709,10 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                         <div>
                           <div style={{ fontSize: 10, color: '#b22', marginBottom: 2 }}>Disband {Math.abs(adj)}</div>
                           {units.filter(u => u.power === power).map(u => {
-                            const sel = winterOrders.disbands.includes(u.id);
-                            const atLimit = !sel && winterOrders.disbands.length >= Math.abs(adj);
-                            return <button key={u.id} onClick={() => { if (atLimit) return; setWinterOrders(prev => ({ ...prev, disbands: sel ? prev.disbands.filter(id => id !== u.id) : [...prev.disbands, u.id] })); }} style={{ display: 'block', width: '100%', padding: '2px 5px', fontSize: 10, textAlign: 'left', background: sel ? '#b22' : '#eee', color: sel ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 2, marginBottom: 2, cursor: atLimit ? 'default' : 'pointer', opacity: atLimit ? 0.4 : 1 }}>{u.type} {displayId(u.id)}</button>;
+                            const pWO = winterOrders[power] ?? { builds: [], disbands: [] };
+                            const sel = pWO.disbands.includes(u.id);
+                            const atLimit = !sel && pWO.disbands.length >= Math.abs(adj);
+                            return <button key={u.id} onClick={() => { if (atLimit) return; setWinterOrders(prev => { const cur = prev[power] ?? { builds: [], disbands: [] }; return { ...prev, [power]: { ...cur, disbands: sel ? cur.disbands.filter(id => id !== u.id) : [...cur.disbands, u.id] } }; }); }} style={{ display: 'block', width: '100%', padding: '2px 5px', fontSize: 10, textAlign: 'left', background: sel ? '#b22' : '#eee', color: sel ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 2, marginBottom: 2, cursor: atLimit ? 'default' : 'pointer', opacity: atLimit ? 0.4 : 1 }}>{u.type} {displayId(u.id)}</button>;
                           })}
                         </div>
                       )}
@@ -699,12 +723,17 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               </div>
               {isAdmin ? (
                 <button onClick={resolveWinterMultiplayer} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#4a0080', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}>▶ Resolve Winter</button>
-              ) : myPower && (() => {
-                const adj = winterPhase.adjustments?.[myPower] ?? 0;
-                const submitted = !!winterPhase.orders?.[myPower];
-                if (submitted) return <div style={{ padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>✓ Adjustment Submitted</div>;
-                if (adj === 0) return <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '6px 0' }}>Waiting for winter resolution…</div>;
-                const canSubmit = adj < 0 ? winterOrders.disbands.length === Math.abs(adj) : true;
+              ) : myPowers.length > 0 && (() => {
+                const allWinterSubmitted = myPowers.every(p => (winterPhase.adjustments?.[p] ?? 0) === 0 || !!winterPhase.orders?.[p]);
+                if (allWinterSubmitted) return <div style={{ padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>✓ Adjustments Submitted</div>;
+                const anyAdj = myPowers.some(p => (winterPhase.adjustments?.[p] ?? 0) !== 0 && !winterPhase.orders?.[p]);
+                if (!anyAdj) return <div style={{ fontSize: 11, color: '#888', textAlign: 'center', padding: '6px 0' }}>Waiting for winter resolution…</div>;
+                const canSubmit = myPowers.every(p => {
+                  const adj = winterPhase.adjustments?.[p] ?? 0;
+                  if (adj === 0 || winterPhase.orders?.[p]) return true;
+                  if (adj < 0) return (winterOrders[p]?.disbands?.length ?? 0) === Math.abs(adj);
+                  return true;
+                });
                 return <button onClick={handleSubmitWinterOrders} disabled={!canSubmit} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: canSubmit ? 'pointer' : 'default', background: '#4a0080', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: canSubmit ? 1 : 0.5 }}>▶ Submit Adjustments</button>;
               })()}
             </>
@@ -718,15 +747,23 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   </button>
                   {showLinks && (
                     <div style={{ background: '#f9f9f9', border: '1px solid #ddd', borderRadius: 3, padding: '5px', marginTop: 3 }}>
-                      {activePowers.map(p => (
-                        <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: POWER_COLOR[p], minWidth: 54, flexShrink: 0 }}>{p}</span>
-                          <button
-                            onClick={() => { navigator.clipboard.writeText(`https://dickplomacy.github.io/game/#/${gameCode}/${gameData.players[p]}`); setCopiedAdminLink(p); setTimeout(() => setCopiedAdminLink(null), 1500); }}
-                            style={{ flex: 1, padding: '2px 5px', fontSize: 9, cursor: 'pointer', background: copiedAdminLink === p ? '#2a6e2a' : '#444', color: '#fff', border: 'none', borderRadius: 2, fontWeight: 700 }}
-                          >{copiedAdminLink === p ? '✓' : 'Copy'}</button>
-                        </div>
-                      ))}
+                      {(() => {
+                        const tokenSlotMap = {};
+                        activePowers.forEach(p => {
+                          const token = gameData.players[p];
+                          if (!tokenSlotMap[token]) tokenSlotMap[token] = [];
+                          tokenSlotMap[token].push(p);
+                        });
+                        return Object.entries(tokenSlotMap).map(([token, powers]) => (
+                          <div key={token} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: POWER_COLOR[powers[0]], minWidth: 54, flexShrink: 0 }}>{powers.join('+')}</span>
+                            <button
+                              onClick={() => { navigator.clipboard.writeText(`https://dickplomacy.github.io/game/#/${gameCode}/${token}`); setCopiedAdminLink(token); setTimeout(() => setCopiedAdminLink(null), 1500); }}
+                              style={{ flex: 1, padding: '2px 5px', fontSize: 9, cursor: 'pointer', background: copiedAdminLink === token ? '#2a6e2a' : '#444', color: '#fff', border: 'none', borderRadius: 2, fontWeight: 700 }}
+                            >{copiedAdminLink === token ? '✓' : 'Copy'}</button>
+                          </div>
+                        ));
+                      })()}
                     </div>
                   )}
                 </div>
@@ -741,7 +778,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                 </button>
               )}
               {/* Submit Orders button for non-admin multiplayer players */}
-              {isMultiplayer && myPower && (
+              {isMultiplayer && myPowers.length > 0 && (
                 submitted ? (
                   <div style={{ display: 'flex', gap: 5 }}>
                     <div style={{ flex: 1, padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>
@@ -796,7 +833,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   const scCount = Object.entries(owners).filter(([tid, p]) => p === power && SC_IDS.has(tid)).length;
                   // In multiplayer, show whether this power has submitted orders
                   const hasSubmitted = isMultiplayer && !!gameData?.orders?.[power];
-                  const isMyPower = !myPower || power === myPower;
+                  const isMyPower = myPowers.length === 0 || myPowers.includes(power);
                   const isPassive = passivePowers.includes(power);
                   const isLocked = lockedPowers.includes(power);
                   return (
@@ -806,7 +843,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                         <span>{power}</span>
                         <span style={{ fontWeight: 400, color: '#555' }}>({scCount} SC)</span>
                         {isPassive && <span style={{ fontSize: 8, color: '#888', fontWeight: 400, fontStyle: 'italic' }}>passive</span>}
-                        {isMultiplayer && !isPassive && (isAdmin || power === myPower) && (
+                        {isMultiplayer && !isPassive && (isAdmin || myPowers.includes(power)) && (
                           <button
                             onClick={() => setCountryLock(gameCode, power, !isLocked)}
                             title={isLocked ? 'Unlock join picker' : 'Lock join picker'}
