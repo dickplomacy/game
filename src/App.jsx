@@ -800,8 +800,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   </button>
                 )
               )}
-              {/* Player lock checkbox */}
-              {isMultiplayer && myPower && (
+              {/* Player lock checkbox — only show for single-power players; multi-power use per-row buttons */}
+              {isMultiplayer && myPower && myPowers.length === 1 && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, cursor: 'pointer', userSelect: 'none', color: '#555', padding: '2px 0', flexShrink: 0 }}>
                   <input type="checkbox" checked={lockedPowers.includes(myPower)} onChange={e => setCountryLock(gameCode, myPower, e.target.checked)} style={{ margin: 0, cursor: 'pointer' }} />
                   {lockedPowers.includes(myPower) ? '🔒' : '🔓'} Lock my country from join picker
