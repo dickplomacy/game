@@ -510,7 +510,7 @@
     "type": "water",
     "supplyCenter": false,
     "unitCoord": {
-      "x": 1218.5,
+      "x": 1244.5,
       "y": 1311
     },
     "moves": {
@@ -862,7 +862,7 @@
     "supplyCenter": true,
     "unitCoord": {
       "x": 450.5,
-      "y": 576
+      "y": 579
     },
     "moves": {
       "army": [
@@ -982,7 +982,7 @@
     "supplyCenter": false,
     "unitCoord": {
       "x": 325.5,
-      "y": 1281
+      "y": 1307
     },
     "moves": {
       "army": [
