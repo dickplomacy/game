@@ -163,6 +163,7 @@ export async function createGame(settings = {}) {
     units: STARTING_UNITS,
     owners,
     orders: {},
+    draftOrders: {},
     retreatPhase: null,
     settings: {
       autoResolve: settings.autoResolve ?? false,
@@ -198,12 +199,20 @@ export async function submitOrders(gameCode, power, orders) {
   });
 }
 
+export async function saveDraftOrders(gameCode, power, orders) {
+  await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
+    [`draftOrders.${power}`]: orders,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 /**
  * Clear submitted orders for one power (e.g. to re-submit).
  */
 export async function clearOrders(gameCode, power) {
   await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
     [`orders.${power}`]: null,
+    [`draftOrders.${power}`]: null,
     updatedAt: serverTimestamp(),
   });
 }
@@ -261,6 +270,7 @@ export async function writeResolution(gameCode, newUnits, newOwners, retreatData
     units: newUnits,
     owners: newOwners,
     orders: {},
+    draftOrders: {},
     phase: nextPhase,
     year: nextYear,
     retreatPhase: retreatData ?? null,

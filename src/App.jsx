@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
+import { submitOrders, clearOrders, saveDraftOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
 import { checkWinner, POWERS, SC_IDS } from "./winCondition";
 import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits } from "./adjustments";
 import Press from "./Press";
@@ -165,6 +165,12 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // Whether this player has submitted orders — all controlled powers must have submitted
   const submitted = isMultiplayer && myPowers.length > 0 ? myPowers.every(p => !!gameData?.orders?.[p]) : false;
   const [submitting, setSubmitting] = useState(false);
+  // savedOrders: snapshot of orders when player last clicked "Save"
+  const [savedOrders, setSavedOrders] = useState(null);
+  const isSaved = savedOrders !== null && JSON.stringify(orders) === JSON.stringify(savedOrders);
+  // savedOrders: snapshot of orders when player clicked "Save" — null means unsaved
+  const [savedOrders, setSavedOrders] = useState(null);
+  const isSaved = savedOrders !== null && JSON.stringify(savedOrders) === JSON.stringify(orders);
   // winterPhase: null | { adjustments: {POWER: number}, orders: {POWER: {builds, disbands}} }
   const [winterPhase, setWinterPhase] = useState(null);
   // Local staging area for winter adjustment orders before submission — keyed by power
@@ -214,10 +220,21 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (isMultiplayer && gameData.orders) {
       if (Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
         setOrders({});
+        setSavedOrders(null);
       } else if (myPowers.length > 0) {
         const merged = {};
         myPowers.forEach(p => { if (gameData.orders[p]) Object.assign(merged, gameData.orders[p]); });
-        if (Object.keys(merged).length > 0) setOrders(merged);
+        if (Object.keys(merged).length > 0) {
+          setOrders(merged);
+        } else {
+          // Not yet submitted — restore draft orders if available
+          const draft = {};
+          myPowers.forEach(p => { if (gameData.draftOrders?.[p]) Object.assign(draft, gameData.draftOrders[p]); });
+          if (Object.keys(draft).length > 0) {
+            setOrders(draft);
+            setSavedOrders(JSON.parse(JSON.stringify(draft)));
+          }
+        }
       }
     }
   }, [gameData]);
@@ -359,6 +376,18 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     }
   }
 
+  async function handleSaveOrders() {
+    if (!gameCode || myPowers.length === 0) return;
+    for (const power of myPowers) {
+      const powerOrders = {};
+      units.filter(u => u.power === power).forEach(u => {
+        if (orders[u.id]) powerOrders[u.id] = orders[u.id];
+      });
+      await saveDraftOrders(gameCode, power, powerOrders);
+    }
+    setSavedOrders(JSON.parse(JSON.stringify(orders)));
+  }
+
   async function handleSubmitOrders() {
     if (!gameCode || myPowers.length === 0) return;
     setSubmitting(true);
@@ -381,6 +410,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       await clearOrders(gameCode, power);
     }
     setOrders({});
+    setSavedOrders(null);
   }
 
   function cancelOrder(unitId) {
@@ -790,13 +820,20 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                       title="Edit orders"
                     >✎</button>
                   </div>
-                ) : (
+                ) : isSaved ? (
                   <button
                     onClick={handleSubmitOrders}
                     disabled={submitting}
                     style={{ padding: '7px 6px', fontWeight: 'bold', cursor: submitting ? 'default' : 'pointer', background: '#1a5c8a', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: submitting ? 0.6 : 1 }}
                   >
                     {submitting ? 'Submitting…' : '▶ Submit Orders'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSaveOrders}
+                    style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#5a7a2a', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em' }}
+                  >
+                    💾 Save Orders
                   </button>
                 )
               )}
