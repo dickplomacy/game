@@ -257,7 +257,7 @@
     "supplyCenter": false,
     "unitCoord": {
       "x": 806.5,
-      "y": 814
+      "y": 824
     },
     "moves": {
       "army": [
@@ -482,7 +482,7 @@
     "type": "coast",
     "supplyCenter": true,
     "unitCoord": {
-      "x": 703.5,
+      "x": 713.5,
       "y": 587
     },
     "moves": {
@@ -601,7 +601,7 @@
     "type": "land",
     "supplyCenter": false,
     "unitCoord": {
-      "x": 999.5,
+      "x": 1009.5,
       "y": 831
     },
     "moves": {
@@ -650,7 +650,7 @@
     "supplyCenter": false,
     "unitCoord": {
       "x": 556,
-      "y": 1060
+      "y": 1070
     },
     "moves": {
       "army": [],
@@ -887,7 +887,7 @@
     "supplyCenter": true,
     "unitCoord": {
       "x": 524.5,
-      "y": 975
+      "y": 985
     },
     "moves": {
       "army": [
@@ -1707,7 +1707,7 @@
     "type": "land",
     "supplyCenter": false,
     "unitCoord": {
-      "x": 742.5,
+      "x": 752.5,
       "y": 904
     },
     "moves": {
@@ -1777,7 +1777,7 @@
     "supplyCenter": true,
     "unitCoord": {
       "x": 855.5,
-      "y": 864
+      "y": 874
     },
     "moves": {
       "army": [
@@ -1798,7 +1798,7 @@
     "supplyCenter": false,
     "unitCoord": {
       "x": 428.5,
-      "y": 648
+      "y": 658
     },
     "moves": {
       "army": [
@@ -1844,7 +1844,7 @@
     "supplyCenter": false,
     "unitCoord": {
       "x": 462.5,
-      "y": 1163
+      "y": 1173
     },
     "moves": {
       "army": [],
