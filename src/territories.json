@@ -813,8 +813,8 @@
     "type": "coast",
     "supplyCenter": true,
     "unitCoord": {
-      "x": 488.5,
-      "y": 675
+      "x": 500,
+      "y": 703
     },
     "moves": {
       "army": [
@@ -1375,8 +1375,8 @@
     "type": "water",
     "supplyCenter": false,
     "unitCoord": {
-      "x": 735.5,
-      "y": 508
+      "x": 740,
+      "y": 545
     },
     "moves": {
       "army": [],
