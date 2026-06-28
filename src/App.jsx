@@ -665,6 +665,9 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   const canEdit = !isMultiplayer || myPowers.includes(unit.power);
                   const lockedInFirestore = isMultiplayer && !!gameData?.retreatPhase?.retreatOrders?.[unit.id];
                   const interactive = canEdit && !lockedInFirestore;
+                  // Filter out any territory currently occupied by a surviving unit
+                  const survivingOccupied = new Set(units.map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
+                  const validOptions = retreatOptions.filter(tid => !survivingOccupied.has(tid.includes('-') ? tid.split('-')[0] : tid));
                   return (
                     <div key={unit.id} style={{ borderLeft: `3px solid ${POWER_COLOR[unit.power]}`, paddingLeft: 7, marginBottom: 8, opacity: (!canEdit) ? 0.5 : 1 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: POWER_COLOR[unit.power], marginBottom: 3 }}>
@@ -672,7 +675,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                         {lockedInFirestore && <span style={{ fontWeight: 400, color: '#2a6e2a', marginLeft: 4 }}>✓</span>}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        {retreatOptions.map(tid => (
+                        {validOptions.map(tid => (
                           <button key={tid} onClick={() => { if (!interactive) return; setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: tid } })); }} style={{ padding: '4px 6px', cursor: interactive ? 'pointer' : 'default', fontSize: 11, textAlign: 'left', background: chosenDest === tid ? '#1a1a2e' : '#eee', color: chosenDest === tid ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3, fontWeight: chosenDest === tid ? 700 : 400 }}>→ {displayId(tid)}</button>
                         ))}
                         {interactive && (<button onClick={() => setRetreatPhase(prev => ({ ...prev, retreatOrders: { ...prev.retreatOrders, [unit.id]: 'disband' } }))} style={{ padding: '4px 6px', cursor: 'pointer', fontSize: 11, textAlign: 'left', background: chosenDest === 'disband' ? '#b22' : '#eee', color: chosenDest === 'disband' ? '#fff' : '#111', border: '1px solid #ccc', borderRadius: 3 }}>✕ Disband</button>)}
