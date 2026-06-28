@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders, saveDraftOrders, writeResolution, appendRetreatLog, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
+import { submitOrders, clearOrders, saveDraftOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
 import { checkWinner, POWERS, SC_IDS } from "./winCondition";
 import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits } from "./adjustments";
 import Press from "./Press";
@@ -607,8 +607,11 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     const winner = isFallRetreat ? checkWinner(finalOwners) : null;
     const winterData = isFallRetreat && !winner ? buildWinterData(finalOwners, newUnits) : null;
     const retreatEntries = buildRetreatLog(dislodged, fullOrders, conflicts);
-    await appendRetreatLog(gameCode, retreatEntries);
-    await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner);
+    // Merge retreat entries into the existing move log (null if game predates this feature)
+    const updatedLog = gameData.lastPhaseLog
+      ? { ...gameData.lastPhaseLog, retreatEntries }
+      : null;
+    await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, updatedLog);
     resetMode();
   }
 
