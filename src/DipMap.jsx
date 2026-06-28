@@ -231,7 +231,7 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
             <text
               key={t.id + '-lbl'}
               x={x}
-              y={y + 4}
+              y={y - 18}
               textAnchor="middle"
               fontSize={9}
               fontWeight="600"
