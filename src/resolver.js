@@ -278,6 +278,9 @@ export function resolve(units, orders) {
         const occ = occupied.get(tid);
         if (occ && !succeeded.has(occ)) return false;
 
+        // A unit successfully moved into this territory this turn
+        if (attackerOf[tid]) return false;
+
         if (standoffTerritories.has(tid)) return false;
         if (tid === attackerSrcBase) return false;
 
