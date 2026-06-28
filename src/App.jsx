@@ -165,12 +165,9 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // Whether this player has submitted orders — all controlled powers must have submitted
   const submitted = isMultiplayer && myPowers.length > 0 ? myPowers.every(p => !!gameData?.orders?.[p]) : false;
   const [submitting, setSubmitting] = useState(false);
-  // savedOrders: snapshot of orders when player last clicked "Save"
+  // savedOrders: snapshot of orders when player last clicked "Save" — null means unsaved
   const [savedOrders, setSavedOrders] = useState(null);
   const isSaved = savedOrders !== null && JSON.stringify(orders) === JSON.stringify(savedOrders);
-  // savedOrders: snapshot of orders when player clicked "Save" — null means unsaved
-  const [savedOrders, setSavedOrders] = useState(null);
-  const isSaved = savedOrders !== null && JSON.stringify(savedOrders) === JSON.stringify(orders);
   // winterPhase: null | { adjustments: {POWER: number}, orders: {POWER: {builds, disbands}} }
   const [winterPhase, setWinterPhase] = useState(null);
   // Local staging area for winter adjustment orders before submission — keyed by power
