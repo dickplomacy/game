@@ -224,25 +224,6 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
           return SC_TERRITORIES.filter(t => !occupied.has(t.id)).map(t => <SupplyCenterStar key={t.id} t={t} />);
         })()}
       </g>
-      <g style={{ pointerEvents: 'none', userSelect: 'none' }}>
-        {tList.filter(t => !t.id.includes('-') && t.type !== 'impassable' && t.unitCoord).map(t => {
-          const { x, y } = t.unitCoord;
-          return (
-            <text
-              key={t.id + '-lbl'}
-              x={x}
-              y={y - 18}
-              textAnchor="middle"
-              fontSize={9}
-              fontWeight="600"
-              fontFamily="sans-serif"
-              fill="rgba(0,0,0,0.42)"
-            >
-              {t.id.toUpperCase()}
-            </text>
-          );
-        })}
-      </g>
       {demilTerritories.size > 0 && (
         <g transform="translate(-195 -170)" style={{ pointerEvents: 'none' }}>
           {Object.values(territories).filter(t => demilTerritories.has(t.id) && t.svg).map(t => {
@@ -266,14 +247,37 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
           })}
         </g>
       )}
+      <g style={{ pointerEvents: 'none', userSelect: 'none' }}>
+        {tList.filter(t => !t.id.includes('-') && t.type !== 'impassable' && t.unitCoord).map(t => {
+          const { x, y } = t.unitCoord;
+          return (
+            <text
+              key={t.id + '-lbl'}
+              x={x}
+              y={y - 18}
+              textAnchor="middle"
+              fontSize={9}
+              fontWeight="600"
+              fontFamily="sans-serif"
+              fill="rgba(0,0,0,0.42)"
+            >
+              {t.id.toUpperCase()}
+            </text>
+          );
+        })}
+      </g>
       <g>
         <OrderArrows orders={orders} units={units} />
       </g>
       <g>
-        {units.map(unit => (
+        {units.map(unit => {
+          const base = unit.id.includes('-') ? unit.id.split('-')[0] : unit.id;
+          const coord = territories[base]?.unitCoord;
+          const hydratedUnit = coord ? { ...unit, x: coord.x, y: coord.y } : unit;
+          return (
           <UnitSymbol
             key={unit.id}
-            unit={unit}
+            unit={hydratedUnit}
             selected={selectedUnit !== null && selectedUnit.id === unit.id}
             allianceBorder={
               conflictPowers.has(unit.power) ? 'conflict' :
@@ -282,7 +286,8 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
               null
             }
           />
-        ))}
+          );
+        })}
       </g>
     </svg>
   );
