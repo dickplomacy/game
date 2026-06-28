@@ -26,7 +26,7 @@
     "type": "water",
     "supplyCenter": false,
     "unitCoord": {
-      "x": 1043.5,
+      "x": 1069.5,
       "y": 1230
     },
     "moves": {
@@ -120,7 +120,7 @@
     "supplyCenter": false,
     "unitCoord": {
       "x": 1484.5,
-      "y": 1090
+      "y": 1103
     },
     "moves": {
       "army": [
@@ -430,7 +430,7 @@
     "type": "coast",
     "supplyCenter": false,
     "unitCoord": {
-      "x": 449.5,
+      "x": 452.5,
       "y": 505
     },
     "moves": {
@@ -672,7 +672,7 @@
     "type": "coast",
     "supplyCenter": true,
     "unitCoord": {
-      "x": 966.5,
+      "x": 979.5,
       "y": 1190
     },
     "moves": {
@@ -716,7 +716,7 @@
     "type": "coast",
     "supplyCenter": true,
     "unitCoord": {
-      "x": 596.5,
+      "x": 594.5,
       "y": 711
     },
     "moves": {
@@ -814,7 +814,7 @@
     "supplyCenter": true,
     "unitCoord": {
       "x": 500,
-      "y": 703
+      "y": 716
     },
     "moves": {
       "army": [
@@ -837,7 +837,7 @@
     "supplyCenter": false,
     "unitCoord": {
       "x": 1025.5,
-      "y": 567
+      "y": 593
     },
     "moves": {
       "army": [
@@ -1396,7 +1396,7 @@
     "supplyCenter": true,
     "unitCoord": {
       "x": 1253.5,
-      "y": 1210
+      "y": 1236
     },
     "moves": {
       "army": [
@@ -1798,7 +1798,7 @@
     "supplyCenter": false,
     "unitCoord": {
       "x": 428.5,
-      "y": 684
+      "y": 688
     },
     "moves": {
       "army": [
@@ -1865,7 +1865,7 @@
     "type": "coast",
     "supplyCenter": false,
     "unitCoord": {
-      "x": 492.5,
+      "x": 497.5,
       "y": 642
     },
     "moves": {
