@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders, saveDraftOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
+import { submitOrders, clearOrders, saveDraftOrders, writeResolution, appendRetreatLog, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
 import { checkWinner, POWERS, SC_IDS } from "./winCondition";
 import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits } from "./adjustments";
 import Press from "./Press";
@@ -172,6 +172,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [winterPhase, setWinterPhase] = useState(null);
   // Local staging area for winter adjustment orders before submission — keyed by power
   const [winterOrders, setWinterOrders] = useState({}); // { [power]: { builds: [], disbands: [] } }
+  // Last phase resolution log (synced from Firestore)
+  const [lastPhaseLog, setLastPhaseLog] = useState(null);
 
   // Sidebar tab: 'orders' | 'press' | 'treaties'
   const [sidebarTab, setSidebarTab] = useState('orders');
@@ -202,6 +204,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (!gameData) return;
     if (gameData.units) setUnits(gameData.units);
     if (gameData.owners) setOwners(gameData.owners);
+    if ('lastPhaseLog' in gameData) setLastPhaseLog(gameData.lastPhaseLog ?? null);
     // Sync retreat phase from Firestore (null clears local retreat phase too)
     if (gameData.retreatPhase !== undefined) {
       setRetreatPhase(gameData.retreatPhase
@@ -414,6 +417,106 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     setOrders(prev => { const next = { ...prev }; delete next[unitId]; return next; });
   }
 
+  // ── Phase log helpers ────────────────────────────────────────────────────
+
+  function buildMoveLog(unitList, flatOrders, result, phase, year, oldOwners, newOwners) {
+    const base = id => id.includes('-') ? id.split('-')[0] : id;
+    const { succeeded, moves, origDest, dislodgedIds, attackerOf, convoyed, originalConvoyed, cutBy } = result;
+    const unitById = Object.fromEntries(unitList.map(u => [u.id, u]));
+    const entries = [];
+
+    // Successful moves (regular and convoyed)
+    succeeded.forEach(uid => {
+      if (!moves[uid]) return;
+      const u = unitById[uid];
+      if (!u) return;
+      entries.push({ ev: convoyed.has(uid) ? 'convoy' : 'move', power: u.power, unitType: u.type, from: base(uid), to: origDest[uid] });
+    });
+
+    // Disrupted convoys
+    originalConvoyed.forEach(uid => {
+      if (convoyed.has(uid)) return;
+      const u = unitById[uid];
+      if (!u) return;
+      entries.push({ ev: 'convoy_disrupted', power: u.power, unitType: u.type, from: base(uid), intended_to: origDest[uid] });
+    });
+
+    // Bounced moves
+    Object.keys(moves).forEach(uid => {
+      if (succeeded.has(uid) || dislodgedIds.has(uid)) return;
+      const u = unitById[uid];
+      if (!u) return;
+      const dest = moves[uid];
+      const rivals = Object.keys(moves)
+        .filter(vid => vid !== uid && moves[vid] === dest && !succeeded.has(vid))
+        .map(vid => { const v = unitById[vid]; return v ? { power: v.power, unitType: v.type, from: base(vid) } : null; })
+        .filter(Boolean);
+      entries.push({ ev: 'bounce', power: u.power, unitType: u.type, from: base(uid), intended_to: origDest[uid], rivals });
+    });
+
+    // Dislodged
+    dislodgedIds.forEach(uid => {
+      const u = unitById[uid];
+      if (!u) return;
+      const attackerUid = attackerOf[base(uid)];
+      const attacker = attackerUid ? unitById[attackerUid] : null;
+      entries.push({ ev: 'dislodge', power: u.power, unitType: u.type, at: base(uid), by: attacker ? { power: attacker.power, unitType: attacker.type, from: base(attackerUid) } : null });
+    });
+
+    // Support cuts
+    Object.entries(cutBy).forEach(([supporterId, attackerId]) => {
+      const supporter = unitById[supporterId];
+      const attacker = unitById[attackerId];
+      if (!supporter) return;
+      const o = flatOrders[supporterId];
+      const tgt = o?.target ? unitById[o.target] : null;
+      entries.push({
+        ev: 'support_cut', power: supporter.power, unitType: supporter.type, at: base(supporterId),
+        by: attacker ? { power: attacker.power, unitType: attacker.type, from: base(attackerId) } : null,
+        wasSupporting: tgt ? { power: tgt.power, unitType: tgt.type, at: base(o.target), dest: o.dest ?? null } : null,
+      });
+    });
+
+    // Units that held against attack
+    const heldAgainst = {};
+    Object.keys(moves).forEach(uid => {
+      if (succeeded.has(uid)) return;
+      const dest = moves[uid];
+      const defUid = unitList.find(u => base(u.id) === dest)?.id;
+      if (!defUid || dislodgedIds.has(defUid)) return;
+      if (!heldAgainst[defUid]) heldAgainst[defUid] = [];
+      const a = unitById[uid];
+      if (a) heldAgainst[defUid].push({ power: a.power, unitType: a.type, from: base(uid) });
+    });
+    Object.entries(heldAgainst).forEach(([defUid, attackers]) => {
+      const def = unitById[defUid];
+      if (!def) return;
+      entries.push({ ev: 'held', power: def.power, unitType: def.type, at: base(defUid), attackers });
+    });
+
+    // SC captures (fall only)
+    const scChanges = [];
+    if ((phase === 'fall-move') && newOwners && oldOwners) {
+      Object.keys(newOwners).forEach(tid => {
+        if (!territories[tid]?.supplyCenter) return;
+        if (newOwners[tid] !== (oldOwners[tid] ?? null))
+          scChanges.push({ power: newOwners[tid], territory: tid, from_power: oldOwners[tid] ?? null });
+      });
+    }
+
+    return { phase, year, entries, scChanges, retreatEntries: null };
+  }
+
+  function buildRetreatLog(dislodgedList, fullRetreats, conflictSet) {
+    const base = id => id.includes('-') ? id.split('-')[0] : id;
+    return dislodgedList.map(({ unit }) => {
+      const dest = fullRetreats[unit.id];
+      if (!dest || dest === 'disband') return { ev: 'disband', power: unit.power, unitType: unit.type, at: base(unit.id) };
+      if (conflictSet.has(dest)) return { ev: 'retreat_clash', power: unit.power, unitType: unit.type, at: base(unit.id), intended_to: dest };
+      return { ev: 'retreat', power: unit.power, unitType: unit.type, from: base(unit.id), to: dest };
+    });
+  }
+
   function runResolver(unitList, orderMap) {
     const result = resolve(unitList, orderMap);
     const pending = result.dislodged.filter(d => d.retreatOptions.length > 1);
@@ -449,20 +552,23 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     const isFall = gameData.phase === 'fall-move';
     // SC ownership only updates at end of Fall
     const movedOwners = isFall ? ownersFromUnits(owners, result.units) : owners;
+    const log = buildMoveLog(gameData.units ?? units, flatOrders, result, gameData.phase, gameData.year, owners, movedOwners);
     if (pending.length > 0) {
       const retreatData = { dislodged: pending, retreatOrders: autoOrders };
-      await writeResolution(gameCode, result.units, movedOwners, retreatData, gameData.phase, gameData.year);
+      await writeResolution(gameCode, result.units, movedOwners, retreatData, gameData.phase, gameData.year, null, null, log);
     } else {
-      const { newUnits } = applyRetreatsCalc(result.units, result.dislodged, autoOrders);
+      const { newUnits, conflicts } = applyRetreatsCalc(result.units, result.dislodged, autoOrders);
       const finalOwners = isFall ? ownersFromUnits(movedOwners, newUnits) : owners;
       const winner = isFall ? checkWinner(finalOwners) : null;
       const winterData = isFall && !winner ? buildWinterData(finalOwners, newUnits) : null;
-      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner);
+      const retreatEntries = buildRetreatLog(result.dislodged, autoOrders, conflicts);
+      const fullLog = { ...log, retreatEntries: retreatEntries.length > 0 ? retreatEntries : null };
+      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, fullLog);
     }
     resetMode();
   }
 
-  // Pure calculation — returns newUnits without touching state (used by both local and multiplayer paths)
+  // Pure calculation — returns newUnits and conflict set without touching state
   function applyRetreatsCalc(currentUnits, dislodged, retreatOrders) {
     const destinations = Object.entries(retreatOrders)
       .filter(([, d]) => d !== 'disband')
@@ -478,7 +584,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       if (!t?.unitCoord) return;
       newUnits.push({ ...unit, id: dest, x: t.unitCoord.x, y: t.unitCoord.y });
     });
-    return { newUnits };
+    return { newUnits, conflicts };
   }
 
   function applyRetreats(currentUnits, dislodged, retreatOrders) {
@@ -495,11 +601,13 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     dislodged.forEach(({ unit }) => {
       if (!fullOrders[unit.id]) fullOrders[unit.id] = 'disband';
     });
-    const { newUnits } = applyRetreatsCalc(gameData.units ?? units, dislodged, fullOrders);
+    const { newUnits, conflicts } = applyRetreatsCalc(gameData.units ?? units, dislodged, fullOrders);
     const isFallRetreat = gameData.phase === 'fall-retreat';
     const finalOwners = isFallRetreat ? ownersFromUnits(owners, newUnits) : owners;
     const winner = isFallRetreat ? checkWinner(finalOwners) : null;
     const winterData = isFallRetreat && !winner ? buildWinterData(finalOwners, newUnits) : null;
+    const retreatEntries = buildRetreatLog(dislodged, fullOrders, conflicts);
+    await appendRetreatLog(gameCode, retreatEntries);
     await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner);
     resetMode();
   }
@@ -652,8 +760,12 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               >Press{pressUnread > 0 && <span style={{ marginLeft: 3, background: '#b22', color: '#fff', borderRadius: 7, padding: '0 4px', fontSize: 9 }}>{pressUnread}</span>}</button>
               <button
                 onClick={() => setSidebarTab('treaties')}
-                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: sidebarTab === 'treaties' ? '#1a1a2e' : '#eee', color: sidebarTab === 'treaties' ? '#fff' : '#555', border: 'none', borderRadius: '0 3px 3px 0' }}
+                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: sidebarTab === 'treaties' ? '#1a1a2e' : '#eee', color: sidebarTab === 'treaties' ? '#fff' : '#555', border: 'none', borderRight: '1px solid #ddd', borderRadius: 0 }}
               >Treaty{treatiesPendingCount > 0 && <span style={{ marginLeft: 3, background: '#b22', color: '#fff', borderRadius: 7, padding: '0 4px', fontSize: 9 }}>{treatiesPendingCount}</span>}</button>
+              <button
+                onClick={() => setSidebarTab('log')}
+                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: sidebarTab === 'log' ? '#1a1a2e' : '#eee', color: sidebarTab === 'log' ? '#fff' : '#555', border: 'none', borderRadius: '0 3px 3px 0' }}
+              >Log</button>
             </div>
           )}
           {sidebarTab === 'orders' && (retreatPhase ? (
@@ -933,6 +1045,48 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               allTreaties={allTreaties}
             />
           )}
+          {sidebarTab === 'log' && isMultiplayer && (() => {
+            if (!lastPhaseLog) return <div style={{ fontSize: 11, color: '#888', padding: '8px 0', textAlign: 'center' }}>No log yet — available after first resolution.</div>;
+            const { phase: logPhase, year: logYear, entries = [], scChanges = [], retreatEntries } = lastPhaseLog;
+            const label = `${(logPhase ?? '').replace('-', ' ').replace(/\b\w/g, c => c.toUpperCase())} ${logYear ?? ''}`;
+            const evOrder = ['dislodge', 'move', 'convoy', 'bounce', 'convoy_disrupted', 'support_cut', 'held', 'retreat', 'retreat_clash', 'disband'];
+            const allEntries = [...entries, ...(retreatEntries ?? [])];
+            const sorted = [...allEntries].sort((a, b) => evOrder.indexOf(a.ev) - evOrder.indexOf(b.ev));
+            const evIcon = { move: '→', convoy: '⛵', bounce: '✗', convoy_disrupted: '⚓✗', dislodge: '💥', support_cut: '✂', held: '🛡', retreat: '↩', disband: '✕', retreat_clash: '↩✗' };
+            const evLabel = { move: 'Moved', convoy: 'Convoyed', bounce: 'Bounced', convoy_disrupted: 'Convoy disrupted', dislodge: 'Dislodged', support_cut: 'Support cut', held: 'Held', retreat: 'Retreated', disband: 'Disbanded', retreat_clash: 'Retreat clash' };
+            const evColor = { move: '#2a6e2a', convoy: '#1a5c8a', bounce: '#8a4a00', convoy_disrupted: '#8a4a00', dislodge: '#b22', support_cut: '#7a4a8a', held: '#2a4a8a', retreat: '#5a7a2a', disband: '#888', retreat_clash: '#b22' };
+            return (
+              <div style={{ overflowY: 'auto', flex: 1, fontSize: 11 }}>
+                <div style={{ fontWeight: 700, fontSize: 11, color: '#555', padding: '2px 0 6px', letterSpacing: '0.04em' }}>{label}</div>
+                {sorted.map((e, i) => (
+                  <div key={i} style={{ borderLeft: `3px solid ${POWER_COLOR[e.power] ?? '#999'}`, paddingLeft: 6, marginBottom: 5 }}>
+                    <span style={{ fontWeight: 700, color: POWER_COLOR[e.power] ?? '#999' }}>{e.power}</span>
+                    {' '}<span style={{ color: '#444' }}>{e.unitType} {displayId(e.from ?? e.at ?? '?')}</span>
+                    {' '}<span style={{ color: evColor[e.ev], fontWeight: 600 }}>{evIcon[e.ev]} {evLabel[e.ev]}</span>
+                    {e.to && <span style={{ color: '#444' }}> → {displayId(e.to)}</span>}
+                    {e.intended_to && <span style={{ color: '#888' }}> (→ {displayId(e.intended_to)})</span>}
+                    {e.by && <span style={{ color: '#666' }}> by <span style={{ color: POWER_COLOR[e.by.power] ?? '#999', fontWeight: 600 }}>{e.by.power}</span> {e.by.unitType} from {displayId(e.by.from)}</span>}
+                    {e.wasSupporting && <span style={{ color: '#888' }}> (S {e.wasSupporting.power} {e.wasSupporting.unitType}{e.wasSupporting.dest ? ` → ${displayId(e.wasSupporting.dest)}` : ' H'})</span>}
+                    {e.rivals?.length > 0 && <span style={{ color: '#888' }}> vs {e.rivals.map(r => `${r.power} ${r.unitType}`).join(', ')}</span>}
+                    {e.attackers?.length > 0 && <span style={{ color: '#888' }}> vs {e.attackers.map(a => `${a.power} ${a.unitType} from ${displayId(a.from)}`).join(', ')}</span>}
+                  </div>
+                ))}
+                {scChanges.length > 0 && (
+                  <div style={{ marginTop: 6, borderTop: '1px solid #eee', paddingTop: 6 }}>
+                    <div style={{ fontWeight: 700, fontSize: 10, color: '#888', marginBottom: 4, letterSpacing: '0.04em' }}>SC CHANGES</div>
+                    {scChanges.map((s, i) => (
+                      <div key={i} style={{ borderLeft: `3px solid ${POWER_COLOR[s.power] ?? '#999'}`, paddingLeft: 6, marginBottom: 4 }}>
+                        <span style={{ fontWeight: 700, color: POWER_COLOR[s.power] ?? '#999' }}>{s.power}</span>
+                        <span style={{ color: '#444' }}> captured {displayId(s.territory)}</span>
+                        {s.from_power && <span style={{ color: '#888' }}> from <span style={{ color: POWER_COLOR[s.from_power] ?? '#999' }}>{s.from_power}</span></span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {sorted.length === 0 && scChanges.length === 0 && <div style={{ color: '#888', fontSize: 11, textAlign: 'center', padding: '8px 0' }}>Nothing to show.</div>}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Map */}

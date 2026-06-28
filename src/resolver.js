@@ -127,6 +127,7 @@ function computeStrengths(moves, units, orders, unitById, occupied) {
 
   // Build cut-supporters set first
   const cutSupporters = new Set();
+  const cutBy = {}; // supporterUnitId → attackerUnitId that cut the support
   units.forEach(attacker => {
     const dest = moves[attacker.id];
     if (!dest) return;
@@ -137,6 +138,7 @@ function computeStrengths(moves, units, orders, unitById, occupied) {
     const supportedDest = defenderOrder.dest ? baseId(defenderOrder.dest) : null;
     if (supportedDest && baseId(attacker.id) === supportedDest) return;
     cutSupporters.add(defenderUnitId);
+    cutBy[defenderUnitId] = attacker.id;
   });
 
   // Attack strength (move-support, excluding cut supporters)
@@ -162,7 +164,7 @@ function computeStrengths(moves, units, orders, unitById, occupied) {
     holdStrength[target.id] = (holdStrength[target.id] ?? 1) + 1;
   });
 
-  return { attackStrength, holdStrength };
+  return { attackStrength, holdStrength, cutBy };
 }
 
 /**
@@ -211,9 +213,11 @@ export function resolve(units, orders) {
   // army stays put. This may change support-cut relationships, so we iterate until stable.
   // Starting with all convoys active means circular-dependency paradoxes (Szykman rule)
   // resolve naturally in favour of the convoy.
-  let succeeded, standoffTerritories, attackerOf, dislodgedIds;
+  const originalConvoyed = new Set(convoyed); // snapshot before any disruptions
+  let succeeded, standoffTerritories, attackerOf, dislodgedIds, cutBy;
   while (true) {
-    const { attackStrength, holdStrength } = computeStrengths(moves, units, orders, unitById, occupied);
+    const { attackStrength, holdStrength, cutBy: cb } = computeStrengths(moves, units, orders, unitById, occupied);
+    cutBy = cb;
 
     ({ succeeded, standoffTerritories, attackerOf } =
       resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStrength, unitById, orders));
@@ -301,7 +305,20 @@ export function resolve(units, orders) {
       return { ...u, id: dest, x: t.unitCoord.x, y: t.unitCoord.y };
     });
 
-  return { units: newUnits, dislodged };
+  return {
+    units: newUnits,
+    dislodged,
+    // Raw resolution data for building phase logs
+    succeeded,
+    moves,
+    origDest,
+    dislodgedIds,
+    standoffTerritories,
+    attackerOf,
+    convoyed,
+    originalConvoyed,
+    cutBy,
+  };
 }
 
 /**
