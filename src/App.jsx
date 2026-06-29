@@ -216,24 +216,24 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       setWinterPhase(gameData.winterPhase ?? null);
       if (!gameData.winterPhase) setWinterOrders({});
     }
-    // Sync local orders from Firestore: restore submitted orders on refresh, clear on new turn
-    if (isMultiplayer && gameData.orders) {
-      if (Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
-        setOrders({});
-        setSavedOrders(null);
-      } else if (myPowers.length > 0) {
-        const merged = {};
-        myPowers.forEach(p => { if (gameData.orders[p]) Object.assign(merged, gameData.orders[p]); });
-        if (Object.keys(merged).length > 0) {
-          setOrders(merged);
-        } else {
-          // Not yet submitted — restore draft orders if available
-          const draft = {};
-          myPowers.forEach(p => { if (gameData.draftOrders?.[p]) Object.assign(draft, gameData.draftOrders[p]); });
-          if (Object.keys(draft).length > 0) {
-            setOrders(draft);
-            setSavedOrders(JSON.parse(JSON.stringify(draft)));
-          }
+    // Sync local orders from Firestore: restore submitted/draft orders on refresh, clear on new turn
+    if (isMultiplayer && gameData.orders && myPowers.length > 0) {
+      const merged = {};
+      myPowers.forEach(p => { if (gameData.orders[p]) Object.assign(merged, gameData.orders[p]); });
+      if (Object.keys(merged).length > 0) {
+        // Player has submitted orders — restore them
+        setOrders(merged);
+      } else {
+        // Not submitted — try draft orders first
+        const draft = {};
+        myPowers.forEach(p => { if (gameData.draftOrders?.[p]) Object.assign(draft, gameData.draftOrders[p]); });
+        if (Object.keys(draft).length > 0) {
+          setOrders(draft);
+          setSavedOrders(JSON.parse(JSON.stringify(draft)));
+        } else if (Object.keys(gameData.orders).every(k => !gameData.orders[k])) {
+          // All orders null + no draft = genuinely new turn, reset
+          setOrders({});
+          setSavedOrders(null);
         }
       }
     }
