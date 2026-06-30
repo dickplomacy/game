@@ -100,33 +100,27 @@ function OrderArrows({ orders, units }) {
       const tgt = unitById[order.target];
       if (!tgt) return;
       if (order.dest) {
-        // Support move: line straight toward attacker → arc around its symbol → line to dest
+        // Support move: cubic bezier with two control points that bracket the attacker —
+        // C1 stops clearance px short of attacker (from the supporter side),
+        // C2 starts clearance px past attacker (toward destination).
+        // This creates a visible corner near the attacker regardless of geometry.
         const dst = coord(order.dest);
         if (!dst) return;
         const { x2, y2 } = shorten(tgt.x, tgt.y, dst.x, dst.y, 16);
-        const clearance = 18; // px — must be > unit radius (13)
-        // C1: approach point — clearance px from attacker on the supporter side
+        const clearance = 18;
+        // Approach: stop clearance px before attacker
         const s2ax = tgt.x - x1, s2ay = tgt.y - y1;
         const s2aLen = Math.sqrt(s2ax * s2ax + s2ay * s2ay) || 1;
-        const c1x = tgt.x - (s2ax / s2aLen) * clearance;
-        const c1y = tgt.y - (s2ay / s2aLen) * clearance;
-        // C2: departure point — clearance px from attacker toward destination
+        const c1f = Math.max(0, 1 - clearance / s2aLen);
+        const c1x = x1 + s2ax * c1f;
+        const c1y = y1 + s2ay * c1f;
+        // Depart: leave attacker toward destination at clearance px
         const a2dx = x2 - tgt.x, a2dy = y2 - tgt.y;
         const a2dLen = Math.sqrt(a2dx * a2dx + a2dy * a2dy) || 1;
         const c2x = tgt.x + (a2dx / a2dLen) * clearance;
         const c2y = tgt.y + (a2dy / a2dLen) * clearance;
-        // Corner arc control: outward bisector from attacker so arc never enters unit symbol
-        const n1x = (c1x - tgt.x) / clearance, n1y = (c1y - tgt.y) / clearance;
-        const n2x = (c2x - tgt.x) / clearance, n2y = (c2y - tgt.y) / clearance;
-        let outX = n1x + n2x, outY = n1y + n2y;
-        const outLen = Math.sqrt(outX * outX + outY * outY);
-        if (outLen < 0.01) { outX = -n1y; outY = n1x; } // near-180° fallback: use perpendicular
-        else { outX /= outLen; outY /= outLen; }
-        const ccx = tgt.x + outX * clearance * 2;
-        const ccy = tgt.y + outY * clearance * 2;
         arrows.push(
-          <path key={uid}
-            d={`M ${x1} ${y1} L ${c1x} ${c1y} Q ${ccx} ${ccy} ${c2x} ${c2y} L ${x2} ${y2}`}
+          <path key={uid} d={`M ${x1} ${y1} C ${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}`}
             stroke={color} strokeWidth={2} strokeDasharray="6 3" fill="none"
             markerEnd="url(#arrow-dashed)"
             style={{ pointerEvents: 'none' }} />
