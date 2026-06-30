@@ -178,8 +178,14 @@ function UnitSymbol({ unit, selected, allianceBorder = null }) {
 
 export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set(), alliedPowers = new Set(), enemyPowers = new Set(), conflictPowers = new Set(), claimBorders = {} }) {
   const tList = Object.values(territories);
+  // Hydrate all units with current unitCoord so stale Firestore x/y never misplaces symbols or arrows
+  const hydratedUnits = units.map(u => {
+    const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
+    const c = territories[base]?.unitCoord;
+    return c ? { ...u, x: c.x, y: c.y } : u;
+  });
   const unitsByTerritory = {};
-  units.forEach(u => {
+  hydratedUnits.forEach(u => {
     const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
     unitsByTerritory[base] = u;
   });
@@ -220,7 +226,7 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
       </g>
       <g>
         {(() => {
-          const occupied = new Set(units.map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
+          const occupied = new Set(hydratedUnits.map(u => u.id.includes('-') ? u.id.split('-')[0] : u.id));
           return SC_TERRITORIES.filter(t => !occupied.has(t.id)).map(t => <SupplyCenterStar key={t.id} t={t} />);
         })()}
       </g>
@@ -267,17 +273,13 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
         })}
       </g>
       <g>
-        <OrderArrows orders={orders} units={units} />
+        <OrderArrows orders={orders} units={hydratedUnits} />
       </g>
       <g>
-        {units.map(unit => {
-          const base = unit.id.includes('-') ? unit.id.split('-')[0] : unit.id;
-          const coord = territories[base]?.unitCoord;
-          const hydratedUnit = coord ? { ...unit, x: coord.x, y: coord.y } : unit;
-          return (
+        {hydratedUnits.map(unit => (
           <UnitSymbol
             key={unit.id}
-            unit={hydratedUnit}
+            unit={unit}
             selected={selectedUnit !== null && selectedUnit.id === unit.id}
             allianceBorder={
               conflictPowers.has(unit.power) ? 'conflict' :
@@ -286,8 +288,7 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
               null
             }
           />
-          );
-        })}
+        ))}
       </g>
     </svg>
   );
