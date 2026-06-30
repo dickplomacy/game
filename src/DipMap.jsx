@@ -100,13 +100,28 @@ function OrderArrows({ orders, units }) {
       const tgt = unitById[order.target];
       if (!tgt) return;
       if (order.dest) {
-        // Support move: bezier curve from supporter through attacker to destination
-        // Control point = attacker position, so the curve visually flows through the supported unit
+        // Support move: bezier that skims past the attacker without overlapping its symbol.
+        // Compute a control point so the curve passes `clearance` px beyond the attacker
+        // (on the far side from the straight supporter→destination line).
         const dst = coord(order.dest);
         if (!dst) return;
         const { x2, y2 } = shorten(tgt.x, tgt.y, dst.x, dst.y, 16);
+        // Direction from midpoint(supporter, dest) toward attacker
+        const mx = (x1 + x2) * 0.5, my = (y1 + y2) * 0.5;
+        let vx = tgt.x - mx, vy = tgt.y - my;
+        const vLen = Math.sqrt(vx * vx + vy * vy);
+        if (vLen > 1) { vx /= vLen; vy /= vLen; }
+        else { // attacker lies on the S-D line — use a perpendicular instead
+          const sdx = x2 - x1, sdy = y2 - y1, sdLen = Math.sqrt(sdx * sdx + sdy * sdy) || 1;
+          vx = -sdy / sdLen; vy = sdx / sdLen;
+        }
+        // Quadratic bezier control point that makes the curve pass through
+        // (attacker + v * clearance) at t=0.5, keeping clearance px away from attacker centre.
+        const clearance = 22; // > unit radius (13) so no overlap
+        const cx = 2 * (tgt.x + vx * clearance) - 0.5 * (x1 + x2);
+        const cy = 2 * (tgt.y + vy * clearance) - 0.5 * (y1 + y2);
         arrows.push(
-          <path key={uid} d={`M ${x1} ${y1} Q ${tgt.x} ${tgt.y} ${x2} ${y2}`}
+          <path key={uid} d={`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`}
             stroke={color} strokeWidth={2} strokeDasharray="6 3" fill="none"
             markerEnd="url(#arrow-dashed)"
             style={{ pointerEvents: 'none' }} />
