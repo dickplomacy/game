@@ -100,23 +100,27 @@ function OrderArrows({ orders, units }) {
       const tgt = unitById[order.target];
       if (!tgt) return;
       if (order.dest) {
-        // Support move: quadratic bezier with attacker as control point — curve naturally
-        // heads toward the attacker then bends toward the destination.
-        // A small perpendicular offset prevents the curve from overlapping the unit symbol.
+        // Support move: cubic bezier with two control points that bracket the attacker —
+        // C1 stops clearance px short of attacker (from the supporter side),
+        // C2 starts clearance px past attacker (toward destination).
+        // This creates a visible corner near the attacker regardless of geometry.
         const dst = coord(order.dest);
         if (!dst) return;
         const { x2, y2 } = shorten(tgt.x, tgt.y, dst.x, dst.y, 16);
-        // Perpendicular to supporter→attacker direction
+        const clearance = 18;
+        // Approach: stop clearance px before attacker
         const s2ax = tgt.x - x1, s2ay = tgt.y - y1;
         const s2aLen = Math.sqrt(s2ax * s2ax + s2ay * s2ay) || 1;
-        const perpX = -s2ay / s2aLen, perpY = s2ax / s2aLen;
-        // Pick the side of the perpendicular that faces toward the destination
-        const side = ((x2 - tgt.x) * perpX + (y2 - tgt.y) * perpY) >= 0 ? 1 : -1;
-        // Control point: attacker position nudged 20px perpendicular (clears the 13px unit radius)
-        const cx = tgt.x + perpX * 20 * side;
-        const cy = tgt.y + perpY * 20 * side;
+        const c1f = Math.max(0, 1 - clearance / s2aLen);
+        const c1x = x1 + s2ax * c1f;
+        const c1y = y1 + s2ay * c1f;
+        // Depart: leave attacker toward destination at clearance px
+        const a2dx = x2 - tgt.x, a2dy = y2 - tgt.y;
+        const a2dLen = Math.sqrt(a2dx * a2dx + a2dy * a2dy) || 1;
+        const c2x = tgt.x + (a2dx / a2dLen) * clearance;
+        const c2y = tgt.y + (a2dy / a2dLen) * clearance;
         arrows.push(
-          <path key={uid} d={`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`}
+          <path key={uid} d={`M ${x1} ${y1} C ${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}`}
             stroke={color} strokeWidth={2} strokeDasharray="6 3" fill="none"
             markerEnd="url(#arrow-dashed)"
             style={{ pointerEvents: 'none' }} />
