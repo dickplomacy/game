@@ -100,13 +100,15 @@ function OrderArrows({ orders, units }) {
       const tgt = unitById[order.target];
       if (!tgt) return;
       if (order.dest) {
-        // Support move: line from supporter toward attack destination
+        // Support move: bezier curve from supporter through attacker to destination
+        // Control point = attacker position, so the curve visually flows through the supported unit
         const dst = coord(order.dest);
         if (!dst) return;
-        const { x2, y2 } = shorten(x1, y1, dst.x, dst.y, 16);
+        const { x2, y2 } = shorten(tgt.x, tgt.y, dst.x, dst.y, 16);
         arrows.push(
-          <line key={uid} x1={x1} y1={y1} x2={x2} y2={y2}
-            stroke={color} strokeWidth={2} strokeDasharray="6 3" markerEnd="url(#arrow-dashed)"
+          <path key={uid} d={`M ${x1} ${y1} Q ${tgt.x} ${tgt.y} ${x2} ${y2}`}
+            stroke={color} strokeWidth={2} strokeDasharray="6 3" fill="none"
+            markerEnd="url(#arrow-dashed)"
             style={{ pointerEvents: 'none' }} />
         );
       } else {
