@@ -430,16 +430,20 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
 
   function buildMoveLog(unitList, flatOrders, result, phase, year, oldOwners, newOwners) {
     const base = id => id.includes('-') ? id.split('-')[0] : id;
-    const { succeeded, moves, origDest, dislodgedIds, attackerOf, convoyed, originalConvoyed, cutBy } = result;
+    const { succeeded, moves, origDest, dislodgedIds, attackerOf, convoyed, originalConvoyed, cutBy, moveSupports = {}, holdSupports = {}, attackStrength = {}, holdStrength = {} } = result;
     const unitById = Object.fromEntries(unitList.map(u => [u.id, u]));
     const entries = [];
+    // Describe supporter units (power/type/source) for the phase log
+    const supDesc = uid => { const s = unitById[uid]; return s ? { power: s.power, unitType: s.type, from: base(uid) } : null; };
+    const movers = uid => (moveSupports[uid] ?? []).map(supDesc).filter(Boolean);
+    const holders = uid => (holdSupports[uid] ?? []).map(supDesc).filter(Boolean);
 
     // Successful moves (regular and convoyed)
     succeeded.forEach(uid => {
       if (!moves[uid]) return;
       const u = unitById[uid];
       if (!u) return;
-      entries.push({ ev: convoyed.has(uid) ? 'convoy' : 'move', power: u.power, unitType: u.type, from: base(uid), to: origDest[uid] });
+      entries.push({ ev: convoyed.has(uid) ? 'convoy' : 'move', power: u.power, unitType: u.type, from: base(uid), to: origDest[uid], strength: attackStrength[uid] ?? 1, supports: movers(uid) });
     });
 
     // Disrupted convoys
@@ -460,7 +464,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         .filter(vid => vid !== uid && moves[vid] === dest && !succeeded.has(vid))
         .map(vid => { const v = unitById[vid]; return v ? { power: v.power, unitType: v.type, from: base(vid) } : null; })
         .filter(Boolean);
-      entries.push({ ev: 'bounce', power: u.power, unitType: u.type, from: base(uid), intended_to: origDest[uid], rivals });
+      entries.push({ ev: 'bounce', power: u.power, unitType: u.type, from: base(uid), intended_to: origDest[uid], rivals, strength: attackStrength[uid] ?? 1, supports: movers(uid) });
     });
 
     // Dislodged
@@ -469,7 +473,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       if (!u) return;
       const attackerUid = attackerOf[base(uid)];
       const attacker = attackerUid ? unitById[attackerUid] : null;
-      entries.push({ ev: 'dislodge', power: u.power, unitType: u.type, at: base(uid), by: attacker ? { power: attacker.power, unitType: attacker.type, from: base(attackerUid) } : null });
+      entries.push({ ev: 'dislodge', power: u.power, unitType: u.type, at: base(uid), by: attacker ? { power: attacker.power, unitType: attacker.type, from: base(attackerUid) } : null, byStrength: attackerUid ? (attackStrength[attackerUid] ?? 1) : null, bySupports: attackerUid ? movers(attackerUid) : [] });
     });
 
     // Support cuts
@@ -500,7 +504,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     Object.entries(heldAgainst).forEach(([defUid, attackers]) => {
       const def = unitById[defUid];
       if (!def) return;
-      entries.push({ ev: 'held', power: def.power, unitType: def.type, at: base(defUid), attackers });
+      entries.push({ ev: 'held', power: def.power, unitType: def.type, at: base(defUid), attackers, defense: holdStrength[defUid] ?? 1, holdSupports: holders(defUid) });
     });
 
     // SC captures (fall only)
@@ -1081,6 +1085,18 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                     {e.wasSupporting && <span style={{ color: '#888' }}> (S {e.wasSupporting.power} {e.wasSupporting.unitType}{e.wasSupporting.dest ? ` → ${displayId(e.wasSupporting.dest)}` : ' H'})</span>}
                     {e.rivals?.length > 0 && <span style={{ color: '#888' }}> vs {e.rivals.map(r => `${r.power} ${r.unitType}`).join(', ')}</span>}
                     {e.attackers?.length > 0 && <span style={{ color: '#888' }}> vs {e.attackers.map(a => `${a.power} ${a.unitType} from ${displayId(a.from)}`).join(', ')}</span>}
+                    {/* Attack strength + supporting units (movers) */}
+                    {e.supports?.length > 0 && (
+                      <span style={{ color: '#2a6e2a' }}> ⚔{e.strength} (S: {e.supports.map(s => `${s.unitType} ${displayId(s.from)}`).join(', ')})</span>
+                    )}
+                    {/* Attacker strength + supporters for a dislodge */}
+                    {e.bySupports?.length > 0 && (
+                      <span style={{ color: '#2a6e2a' }}> ⚔{e.byStrength} (S: {e.bySupports.map(s => `${s.unitType} ${displayId(s.from)}`).join(', ')})</span>
+                    )}
+                    {/* Defense strength + hold supporters (shown for units that held) */}
+                    {e.ev === 'held' && (
+                      <span style={{ color: '#2a4a8a' }}> 🛡{e.defense}{e.holdSupports?.length > 0 ? ` (S: ${e.holdSupports.map(s => `${s.unitType} ${displayId(s.from)}`).join(', ')})` : ''}</span>
+                    )}
                   </div>
                 ))}
                 {scChanges.length > 0 && (

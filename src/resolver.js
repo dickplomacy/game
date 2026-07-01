@@ -125,6 +125,10 @@ function computeStrengths(moves, units, orders, unitById, occupied) {
   const holdStrength = {};
   units.forEach(u => { holdStrength[u.id] = 1; });
 
+  // Track which supporters actually contributed, for phase-log reporting.
+  const moveSupports = {}; // targetUnitId → [supporterUnitId, ...]
+  const holdSupports = {}; // targetUnitId → [supporterUnitId, ...]
+
   // Build cut-supporters set first
   const cutSupporters = new Set();
   const cutBy = {}; // supporterUnitId → attackerUnitId that cut the support
@@ -152,6 +156,7 @@ function computeStrengths(moves, units, orders, unitById, occupied) {
     if (!targetDest || targetDest !== baseId(o.dest)) return;
     if (!isAdjacentById(supporter.id, supporter.type, o.dest)) return;
     attackStrength[target.id] = (attackStrength[target.id] ?? 1) + 1;
+    (moveSupports[target.id] ??= []).push(supporter.id);
   });
 
   // Hold strength (hold-support, excluding cut supporters)
@@ -162,9 +167,10 @@ function computeStrengths(moves, units, orders, unitById, occupied) {
     const target = unitById[o.target];
     if (!target || moves[target.id]) return;
     holdStrength[target.id] = (holdStrength[target.id] ?? 1) + 1;
+    (holdSupports[target.id] ??= []).push(supporter.id);
   });
 
-  return { attackStrength, holdStrength, cutBy };
+  return { attackStrength, holdStrength, cutBy, moveSupports, holdSupports };
 }
 
 /**
@@ -214,10 +220,14 @@ export function resolve(units, orders) {
   // Starting with all convoys active means circular-dependency paradoxes (Szykman rule)
   // resolve naturally in favour of the convoy.
   const originalConvoyed = new Set(convoyed); // snapshot before any disruptions
-  let succeeded, standoffTerritories, attackerOf, dislodgedIds, cutBy;
+  let succeeded, standoffTerritories, attackerOf, dislodgedIds, cutBy, moveSupports, holdSupports, attackStrengthOut, holdStrengthOut;
   while (true) {
-    const { attackStrength, holdStrength, cutBy: cb } = computeStrengths(moves, units, orders, unitById, occupied);
+    const { attackStrength, holdStrength, cutBy: cb, moveSupports: ms, holdSupports: hs } = computeStrengths(moves, units, orders, unitById, occupied);
     cutBy = cb;
+    moveSupports = ms;
+    holdSupports = hs;
+    attackStrengthOut = attackStrength;
+    holdStrengthOut = holdStrength;
 
     ({ succeeded, standoffTerritories, attackerOf } =
       resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStrength, unitById, orders));
@@ -318,6 +328,10 @@ export function resolve(units, orders) {
     convoyed,
     originalConvoyed,
     cutBy,
+    moveSupports,
+    holdSupports,
+    attackStrength: attackStrengthOut,
+    holdStrength: holdStrengthOut,
   };
 }
 
