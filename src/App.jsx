@@ -661,7 +661,13 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         const submitted = powerOrders?.disbands ?? [];
         let toDisband = submitted.slice(0, needed);
         if (toDisband.length < needed) {
+          // Player didn't specify enough disbands (passive powers never submit):
+          // remove random units to cover the shortfall.
           const extra = newUnits.filter(u => u.power === power && !toDisband.includes(u.id));
+          for (let i = extra.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [extra[i], extra[j]] = [extra[j], extra[i]];
+          }
           toDisband = [...toDisband, ...extra.slice(0, needed - toDisband.length).map(u => u.id)];
         }
         newUnits = newUnits.filter(u => !(u.power === power && toDisband.includes(u.id)));
