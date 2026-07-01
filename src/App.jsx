@@ -202,8 +202,15 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // Sync units, owners, and retreatPhase from Firestore whenever the server state changes
   useEffect(() => {
     if (!gameData) return;
-    if (gameData.units) setUnits(gameData.units);
-    if (gameData.owners) setOwners(gameData.owners);
+    if (gameData.units) {
+      setUnits(gameData.units);
+      // Always overlay current unit positions on Firestore owners so that:
+      // (a) new captures are reflected even if Firestore owners is stale/missing,
+      // (b) old games that predate owners-tracking still show correct unit-occupier colors.
+      setOwners(ownersFromUnits(gameData.owners || INITIAL_OWNERS, gameData.units));
+    } else if (gameData.owners) {
+      setOwners(gameData.owners);
+    }
     if ('lastPhaseLog' in gameData) setLastPhaseLog(gameData.lastPhaseLog ?? null);
     // Sync retreat phase from Firestore (null clears local retreat phase too)
     if (gameData.retreatPhase !== undefined) {
