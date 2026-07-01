@@ -33,11 +33,22 @@ const POWER_RGBA = {
 
 function territoryFill(t, unitsByTerritory, territoryOwners) {
   if (t.id.includes('-') || t.type === 'water' || t.type === 'impassable') return null;
-  const power = territoryOwners[t.id];
-  const rgb = power && POWER_RGBA[power];
-  if (!rgb) return null;
-  const alpha = t.supplyCenter ? 0.5 : 0.25;
-  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+  const owner = territoryOwners[t.id];
+  // Darker (0.5): a supply center whose ownership is official. SC ownership only
+  // transfers at the end of Fall, so an owned SC stays this shade even if empty.
+  if (t.supplyCenter && owner && POWER_RGBA[owner]) {
+    const rgb = POWER_RGBA[owner];
+    return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.5)`;
+  }
+  // Lighter (0.25): merely occupied (a unit is standing here now) or previously
+  // stamped, but ownership has not transferred yet. Current occupier takes priority.
+  const occupier = unitsByTerritory[t.id]?.power;
+  const power = occupier || owner;
+  if (power && POWER_RGBA[power]) {
+    const rgb = POWER_RGBA[power];
+    return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.25)`;
+  }
+  return null;
 }
 
 const SC_TERRITORIES = Object.values(territories).filter(t => t.supplyCenter && t.unitCoord && !t.id.includes('-'));
