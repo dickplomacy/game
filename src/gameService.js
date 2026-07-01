@@ -44,6 +44,7 @@ import {
   setDoc,
   updateDoc,
   serverTimestamp,
+  arrayUnion,
   collection,
   query,
   orderBy,
@@ -261,7 +262,7 @@ export async function submitRetreatOrders(gameCode, retreatOrdersMap) {
  * - retreatData: null | { dislodged, retreatOrders } — if set, enter retreat phase
  * - winterData: null | { adjustments, orders } — if set (fall only), enter winter phase
  */
-export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null, winner = null, log = null) {
+export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null, winner = null, log = null, historyEntries = []) {
   let nextPhase, nextYear;
   if (retreatData) {
     nextPhase = currentPhase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
@@ -289,6 +290,7 @@ export async function writeResolution(gameCode, newUnits, newOwners, retreatData
     retreatPhase: retreatData ?? null,
     winterPhase: nextPhase === 'winter' ? winterData : null,
     lastPhaseLog: log ?? null,
+    ...(historyEntries && historyEntries.length ? { history: arrayUnion(...historyEntries) } : {}),
     ...(winner ? { winner } : {}),
     updatedAt: serverTimestamp(),
   });
@@ -319,13 +321,14 @@ export async function submitWinterOrders(gameCode, power, builds, disbands) {
 /**
  * Finalise winter: write new unit array and advance to next spring.
  */
-export async function writeWinterResolution(gameCode, newUnits, currentYear) {
+export async function writeWinterResolution(gameCode, newUnits, currentYear, historyEntry = null) {
   await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
     units: newUnits,
     orders: {},
     phase: 'spring-move',
     year: currentYear + 1,
     winterPhase: null,
+    ...(historyEntry ? { history: arrayUnion(historyEntry) } : {}),
     updatedAt: serverTimestamp(),
   });
 }

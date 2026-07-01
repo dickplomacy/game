@@ -108,6 +108,67 @@ function renderOrderText(u, orders, units) {
   return `${u.type} ${displayId(u.id)}`;
 }
 
+// ── Full order-history formatting (grouped by power, Diplomacy notation) ──────
+// Move phase: every unit is listed, unordered units shown as an explicit hold.
+function historyMoveOrders(unitList, flatOrders) {
+  const byPower = {};
+  unitList.forEach(u => {
+    const s = flatOrders[u.id] ? renderOrderText(u, flatOrders, unitList) : `${u.type} ${displayId(u.id)} H`;
+    (byPower[u.power] ??= []).push(s);
+  });
+  return byPower;
+}
+
+// Retreat phase: 'A SEV R MOS' (retreat) or 'A SEV D' (disband).
+function historyRetreatOrders(dislodged, retreatOrders) {
+  const byPower = {};
+  dislodged.forEach(({ unit }) => {
+    const dest = retreatOrders[unit.id];
+    const s = (!dest || dest === 'disband')
+      ? `${unit.type} ${displayId(unit.id)} D`
+      : `${unit.type} ${displayId(unit.id)} R ${displayId(dest)}`;
+    (byPower[unit.power] ??= []).push(s);
+  });
+  return byPower;
+}
+
+// Modal dialog listing every recorded turn's orders, grouped by power.
+function FullOrderHistory({ history, onClose }) {
+  const SEASON = { 'spring-move': 'Spring', 'spring-retreat': 'Spring', 'fall-move': 'Fall', 'fall-retreat': 'Fall', 'winter': 'Winter' };
+  const KIND = { 'spring-move': 'Moves', 'fall-move': 'Moves', 'spring-retreat': 'Retreats', 'fall-retreat': 'Retreats', 'winter': 'Adjustments' };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, width: 'min(680px, 96vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #eee' }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Full order history</div>
+          <button onClick={onClose} style={{ padding: '4px 10px', cursor: 'pointer', background: '#eee', border: '1px solid #ccc', borderRadius: 4, fontSize: 13, fontWeight: 700 }}>✕</button>
+        </div>
+        <div style={{ overflowY: 'auto', padding: '10px 16px', fontSize: 12 }}>
+          {history.length === 0 && <div style={{ color: '#888', textAlign: 'center', padding: '16px 0' }}>No turns recorded yet.</div>}
+          {history.map((turn, ti) => {
+            const heading = `${SEASON[turn.phase] ?? turn.phase} ${turn.year ?? ''} — ${KIND[turn.phase] ?? ''}`;
+            const powers = Object.keys(turn.ordersByPower ?? {}).filter(p => (turn.ordersByPower[p] ?? []).length > 0);
+            return (
+              <div key={ti} style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 700, fontSize: 12, color: '#1a1a2e', borderBottom: '2px solid #1a1a2e', paddingBottom: 3, marginBottom: 6, letterSpacing: '0.03em' }}>{heading}</div>
+                {powers.length === 0 && <div style={{ color: '#aaa', fontStyle: 'italic', paddingLeft: 6 }}>No orders.</div>}
+                {powers.map(power => (
+                  <div key={power} style={{ marginBottom: 6, borderLeft: `3px solid ${POWER_COLOR[power] ?? '#999'}`, paddingLeft: 8 }}>
+                    <div style={{ fontWeight: 700, fontSize: 10, color: POWER_COLOR[power] ?? '#999', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{power}</div>
+                    {turn.ordersByPower[power].map((line, li) => (
+                      <div key={li} style={{ color: '#333', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11.5, lineHeight: 1.5 }}>{line}</div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Initial territory ownership — all land territories each nation starts with
 const INITIAL_OWNERS = {
   // Austria-Hungary
@@ -174,6 +235,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [winterOrders, setWinterOrders] = useState({}); // { [power]: { builds: [], disbands: [] } }
   // Last phase resolution log (synced from Firestore)
   const [lastPhaseLog, setLastPhaseLog] = useState(null);
+  // Full order-history dialog visibility
+  const [showHistory, setShowHistory] = useState(false);
 
   // Sidebar tab: 'orders' | 'press' | 'treaties'
   const [sidebarTab, setSidebarTab] = useState('orders');
@@ -566,9 +629,10 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     // SC ownership only updates at end of Fall
     const movedOwners = isFall ? ownersFromUnits(owners, result.units) : owners;
     const log = buildMoveLog(gameData.units ?? units, flatOrders, result, gameData.phase, gameData.year, owners, movedOwners);
+    const moveEntry = { phase: gameData.phase, year: gameData.year, ordersByPower: historyMoveOrders(gameData.units ?? units, flatOrders) };
     if (pending.length > 0) {
       const retreatData = { dislodged: pending, retreatOrders: autoOrders };
-      await writeResolution(gameCode, result.units, movedOwners, retreatData, gameData.phase, gameData.year, null, null, log);
+      await writeResolution(gameCode, result.units, movedOwners, retreatData, gameData.phase, gameData.year, null, null, log, [moveEntry]);
     } else {
       const { newUnits, conflicts } = applyRetreatsCalc(result.units, result.dislodged, autoOrders);
       const finalOwners = isFall ? ownersFromUnits(movedOwners, newUnits) : owners;
@@ -576,7 +640,12 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       const winterData = isFall && !winner ? buildWinterData(finalOwners, newUnits) : null;
       const retreatEntries = buildRetreatLog(result.dislodged, autoOrders, conflicts);
       const fullLog = { ...log, retreatEntries: retreatEntries.length > 0 ? retreatEntries : null };
-      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, fullLog);
+      const histEntries = [moveEntry];
+      if (result.dislodged.length > 0) {
+        const retreatPhaseName = gameData.phase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
+        histEntries.push({ phase: retreatPhaseName, year: gameData.year, ordersByPower: historyRetreatOrders(result.dislodged, autoOrders) });
+      }
+      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, fullLog, histEntries);
     }
     resetMode();
   }
@@ -624,7 +693,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     const updatedLog = gameData.lastPhaseLog
       ? { ...gameData.lastPhaseLog, retreatEntries }
       : null;
-    await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, updatedLog);
+    const retreatEntry = { phase: gameData.phase, year: gameData.year, ordersByPower: historyRetreatOrders(dislodged, fullOrders) };
+    await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, updatedLog, [retreatEntry]);
     resetMode();
   }
 
@@ -653,6 +723,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (!gameData?.winterPhase || !gameCode) return;
     const { adjustments, orders: wOrders } = gameData.winterPhase;
     let newUnits = [...(gameData.units ?? units)];
+    const preUnitById = Object.fromEntries((gameData.units ?? units).map(u => [u.id, u]));
+    const winterByPower = {};
     POWERS.forEach(power => {
       const adj = adjustments[power] ?? 0;
       const powerOrders = wOrders?.[power];
@@ -670,6 +742,10 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
           }
           toDisband = [...toDisband, ...extra.slice(0, needed - toDisband.length).map(u => u.id)];
         }
+        toDisband.forEach(id => {
+          const du = preUnitById[id];
+          (winterByPower[power] ??= []).push(`Disband ${du ? du.type + ' ' : ''}${displayId(id)}`);
+        });
         newUnits = newUnits.filter(u => !(u.power === power && toDisband.includes(u.id)));
       } else if (adj > 0 && powerOrders?.builds?.length > 0) {
         const currentOwners = gameData.owners ?? owners;
@@ -680,11 +756,13 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
           const occupied = newUnits.some(u => (u.id.includes('-') ? u.id.split('-')[0] : u.id) === territory);
           if (!occupied && currentOwners[territory] === power) {
             newUnits.push({ id: territory, type, power, x: t.unitCoord.x, y: t.unitCoord.y });
+            (winterByPower[power] ??= []).push(`Build ${type} ${displayId(territory)}`);
           }
         });
       }
     });
-    await writeWinterResolution(gameCode, newUnits, gameData.year ?? 1901);
+    const historyEntry = { phase: 'winter', year: gameData.year ?? 1901, ordersByPower: winterByPower };
+    await writeWinterResolution(gameCode, newUnits, gameData.year ?? 1901, historyEntry);
     resetMode();
   }
 
@@ -1068,7 +1146,15 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
             />
           )}
           {sidebarTab === 'log' && isMultiplayer && (() => {
-            if (!lastPhaseLog) return <div style={{ fontSize: 11, color: '#888', padding: '8px 0', textAlign: 'center' }}>No log yet — available after first resolution.</div>;
+            const historyBtn = (gameData?.history?.length ?? 0) > 0 ? (
+              <button onClick={() => setShowHistory(true)} style={{ margin: '6px 0 0', padding: '6px', fontWeight: 700, cursor: 'pointer', background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, letterSpacing: '0.03em' }}>📜 Show full order history</button>
+            ) : null;
+            if (!lastPhaseLog) return (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                <div style={{ fontSize: 11, color: '#888', padding: '8px 0', textAlign: 'center', flex: 1 }}>No log yet — available after first resolution.</div>
+                {historyBtn}
+              </div>
+            );
             const { phase: logPhase, year: logYear, entries = [], scChanges = [], retreatEntries } = lastPhaseLog;
             const label = `${(logPhase ?? '').replace('-', ' ').replace(/\b\w/g, c => c.toUpperCase())} ${logYear ?? ''}`;
             const evOrder = ['dislodge', 'move', 'convoy', 'bounce', 'convoy_disrupted', 'support_cut', 'held', 'retreat', 'retreat_clash', 'disband'];
@@ -1078,6 +1164,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
             const evLabel = { move: 'Moved', convoy: 'Convoyed', bounce: 'Bounced', convoy_disrupted: 'Convoy disrupted', dislodge: 'Dislodged', support_cut: 'Support cut', held: 'Held', retreat: 'Retreated', disband: 'Disbanded', retreat_clash: 'Retreat clash' };
             const evColor = { move: '#2a6e2a', convoy: '#1a5c8a', bounce: '#8a4a00', convoy_disrupted: '#8a4a00', dislodge: '#b22', support_cut: '#7a4a8a', held: '#2a4a8a', retreat: '#5a7a2a', disband: '#888', retreat_clash: '#b22' };
             return (
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <div style={{ overflowY: 'auto', flex: 1, fontSize: 11 }}>
                 <div style={{ fontWeight: 700, fontSize: 11, color: '#555', padding: '2px 0 6px', letterSpacing: '0.04em' }}>{label}</div>
                 {sorted.map((e, i) => (
@@ -1118,6 +1205,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   </div>
                 )}
                 {sorted.length === 0 && scChanges.length === 0 && <div style={{ color: '#888', fontSize: 11, textAlign: 'center', padding: '8px 0' }}>Nothing to show.</div>}
+              </div>
+              {historyBtn}
               </div>
             );
           })()}
@@ -1220,6 +1309,9 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         </div>
 
       </div>
+      {showHistory && (
+        <FullOrderHistory history={gameData?.history ?? []} onClose={() => setShowHistory(false)} />
+      )}
     </div>
   );
 }
