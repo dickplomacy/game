@@ -218,6 +218,19 @@ export async function clearOrders(gameCode, power) {
 }
 
 /**
+ * Un-submit orders for one power, returning them to the editable draft stage.
+ * Clears the submitted orders (so the turn is no longer locked in) while preserving
+ * the current orders as a draft so nothing the player entered is lost.
+ */
+export async function unsubmitOrders(gameCode, power, draftOrders) {
+  await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
+    [`orders.${power}`]: null,
+    [`draftOrders.${power}`]: draftOrders,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
  * Given a game document and a player token, return which role that token belongs to.
  * Returns the role string (e.g. 'ENGLAND', 'ADMIN') or null if not found.
  */

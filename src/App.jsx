@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import DipMap from "./DipMap";
 import territories from "./territories.json";
 import { resolve } from "./resolver";
-import { submitOrders, clearOrders, saveDraftOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
+import { submitOrders, unsubmitOrders, saveDraftOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
 import { checkWinner, POWERS, SC_IDS } from "./winCondition";
 import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits } from "./adjustments";
 import Press from "./Press";
@@ -407,13 +407,19 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     }
   }
 
-  async function handleClearOrders() {
+  // Return submitted orders to the editable draft stage without discarding them.
+  async function handleEditOrders() {
     if (!gameCode || myPowers.length === 0) return;
     for (const power of myPowers) {
-      await clearOrders(gameCode, power);
+      const powerOrders = {};
+      units.filter(u => u.power === power).forEach(u => {
+        if (orders[u.id]) powerOrders[u.id] = orders[u.id];
+      });
+      await unsubmitOrders(gameCode, power, powerOrders);
     }
-    setOrders({});
-    setSavedOrders(null);
+    // Keep the current orders and mark them saved so the UI returns to the
+    // "Submit Orders" (draft) stage instead of wiping everything.
+    setSavedOrders(JSON.parse(JSON.stringify(orders)));
   }
 
   function cancelOrder(unitId) {
@@ -933,7 +939,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                       ✓ Orders Submitted
                     </div>
                     <button
-                      onClick={handleClearOrders}
+                      onClick={handleEditOrders}
                       style={{ padding: '7px 8px', fontWeight: 'bold', cursor: 'pointer', background: '#666', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11 }}
                       title="Edit orders"
                     >✎</button>
