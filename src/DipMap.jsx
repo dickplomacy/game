@@ -31,24 +31,59 @@ const POWER_RGBA = {
   TURKEY:  [185, 166,  28],
 };
 
-function territoryFill(t, unitsByTerritory, territoryOwners) {
+function powerRgba(power, alpha) {
+  const rgb = POWER_RGBA[power];
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+}
+
+// Stable id for the diagonal-stripe pattern of a contested SC (owner + occupier).
+function stripeId(owner, occupier) {
+  return `stripe-${owner}-${occupier}`;
+}
+
+// Returns true when an owned supply center is occupied by a unit of a different
+// power — i.e. the center is contested and its ownership may change at Fall's end.
+function isContestedSC(t, unitsByTerritory, territoryOwners) {
+  if (!t.supplyCenter || t.id.includes('-')) return false;
+  const owner = territoryOwners[t.id];
+  const occupier = unitsByTerritory[t.id]?.power;
+  return !!(owner && occupier && owner !== occupier && POWER_RGBA[owner] && POWER_RGBA[occupier]);
+}
+
+export function territoryFill(t, unitsByTerritory, territoryOwners) {
   if (t.id.includes('-') || t.type === 'water' || t.type === 'impassable') return null;
   const owner = territoryOwners[t.id];
+  const occupier = unitsByTerritory[t.id]?.power;
+  // Contested: an owned SC occupied by another power. Stripe the owner's colour
+  // with the lighter shade of the occupier so both claims are visible at a glance.
+  if (isContestedSC(t, unitsByTerritory, territoryOwners)) {
+    return `url(#${stripeId(owner, occupier)})`;
+  }
   // Darker (0.5): a supply center whose ownership is official. SC ownership only
   // transfers at the end of Fall, so an owned SC stays this shade even if empty.
   if (t.supplyCenter && owner && POWER_RGBA[owner]) {
-    const rgb = POWER_RGBA[owner];
-    return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.5)`;
+    return powerRgba(owner, 0.5);
   }
   // Lighter (0.25): merely occupied (a unit is standing here now) or previously
   // stamped, but ownership has not transferred yet. Current occupier takes priority.
-  const occupier = unitsByTerritory[t.id]?.power;
   const power = occupier || owner;
   if (power && POWER_RGBA[power]) {
-    const rgb = POWER_RGBA[power];
-    return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.25)`;
+    return powerRgba(power, 0.25);
   }
   return null;
+}
+
+// Collect the distinct (owner, occupier) pairs of every contested SC currently on
+// the board, so a stripe <pattern> can be defined once per pair.
+function contestedStripePairs(tList, unitsByTerritory, territoryOwners) {
+  const pairs = new Map();
+  tList.forEach(t => {
+    if (!isContestedSC(t, unitsByTerritory, territoryOwners)) return;
+    const owner = territoryOwners[t.id];
+    const occupier = unitsByTerritory[t.id].power;
+    pairs.set(stripeId(owner, occupier), { owner, occupier });
+  });
+  return [...pairs.values()];
 }
 
 const SC_TERRITORIES = Object.values(territories).filter(t => t.supplyCenter && t.unitCoord && !t.id.includes('-'));
@@ -202,6 +237,7 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
     const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
     unitsByTerritory[base] = u;
   });
+  const stripePairs = contestedStripePairs(tList, unitsByTerritory, territoryOwners);
   return (
     <svg
       viewBox="0 0 1835 1360"
@@ -215,6 +251,15 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
         <marker id="arrow-dashed" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
           <path d="M0,0 L0,6 L6,3 z" fill="context-stroke" />
         </marker>
+        {/* Diagonal stripes for contested supply centers: the owner's colour (0.5)
+            interleaved with the lighter shade (0.25) of the occupying power. */}
+        {stripePairs.map(({ owner, occupier }) => (
+          <pattern key={stripeId(owner, occupier)} id={stripeId(owner, occupier)}
+            patternUnits="userSpaceOnUse" width="14" height="14" patternTransform="rotate(45)">
+            <rect width="14" height="14" fill={powerRgba(owner, 0.5)} />
+            <rect width="7" height="14" fill={powerRgba(occupier, 0.25)} />
+          </pattern>
+        ))}
       </defs>
       <g transform="translate(-195 -170)">
         {tList.map(t => {
