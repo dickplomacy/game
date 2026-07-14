@@ -25,3 +25,6 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}  # Also pass as input
           prompt: ${{ github.event.comment.body }}
+          show_full_output: true   # ✅ Shows Claude's full reasoning in logs
+          display_report: true     # ✅ Posts summary comment on issue/PR
+          track_progress: true     # ✅ Updates progress comments
