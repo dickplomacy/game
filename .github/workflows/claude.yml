@@ -27,7 +27,5 @@ jobs:
           show_full_output: true
           display_report: true
           track_progress: true
-          # Use Claude Sonnet 4.6 for better speed/cost balance
-          claude_args: "--model claude-sonnet-4-20241215"
-          # Allow npm, vitest and related tools
-          additional_permissions: "Bash(npm:*),Bash(npx:*),Bash(vitest:*)"
+          # Use Claude Sonnet 4 for better speed/cost balance
+          claude_args: "--model claude-sonnet-4-20241215 --allowed-tools Glob,Grep,LS,Read,Bash,Bash(npm:*),Bash(npx:*),Bash(vitest:*)"
