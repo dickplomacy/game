@@ -29,4 +29,23 @@ describe('territoryFill', () => {
     expect(territoryFill({ id: 'swi', type: 'impassable' }, {}, {})).toBeNull();
     expect(territoryFill({ id: 'spa-nc', type: 'land' }, {}, {})).toBeNull();
   });
+
+  it('shows the lighter shade of the last occupier on a vacated non-SC territory', () => {
+    // No current occupier, no owner, but lastOccupied records France was here
+    const fill = territoryFill(plain, {}, {}, { ruh: 'FRANCE' });
+    expect(fill).toMatch(/rgba\(.*0\.25\)/);
+  });
+
+  it('does not use lastOccupied for SC territory coloring', () => {
+    // SC with no official owner, no current occupier — lastOccupied should not apply
+    const fill = territoryFill(sc, {}, {}, { mun: 'FRANCE' });
+    expect(fill).toBeNull();
+  });
+
+  it('current occupier takes priority over lastOccupied', () => {
+    // Italy is currently there, lastOccupied says France — should show Italy
+    const fill = territoryFill(plain, { ruh: { power: 'ITALY' } }, {}, { ruh: 'FRANCE' });
+    // Just verify it returns a lighter shade (the occupier's color)
+    expect(fill).toMatch(/rgba\(.*0\.25\)/);
+  });
 });

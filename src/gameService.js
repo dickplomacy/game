@@ -156,6 +156,13 @@ export async function createGame(settings = {}) {
     owners[base] = u.power;
   });
 
+  // Track last occupier of every territory (non-SC only used for display; starts from unit positions)
+  const lastOccupied = {};
+  STARTING_UNITS.forEach(u => {
+    const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
+    lastOccupied[base] = u.power;
+  });
+
   const gameData = {
     code,
     phase: 'spring-move',
@@ -163,6 +170,7 @@ export async function createGame(settings = {}) {
     players,
     units: STARTING_UNITS,
     owners,
+    lastOccupied,
     orders: {},
     draftOrders: {},
     retreatPhase: null,
@@ -262,7 +270,7 @@ export async function submitRetreatOrders(gameCode, retreatOrdersMap) {
  * - retreatData: null | { dislodged, retreatOrders } — if set, enter retreat phase
  * - winterData: null | { adjustments, orders } — if set (fall only), enter winter phase
  */
-export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null, winner = null, log = null, historyEntries = []) {
+export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null, winner = null, log = null, historyEntries = [], lastOccupied = null) {
   let nextPhase, nextYear;
   if (retreatData) {
     nextPhase = currentPhase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
@@ -292,6 +300,7 @@ export async function writeResolution(gameCode, newUnits, newOwners, retreatData
     lastPhaseLog: log ?? null,
     ...(historyEntries && historyEntries.length ? { history: arrayUnion(...historyEntries) } : {}),
     ...(winner ? { winner } : {}),
+    ...(lastOccupied ? { lastOccupied } : {}),
     updatedAt: serverTimestamp(),
   });
 }
@@ -321,7 +330,7 @@ export async function submitWinterOrders(gameCode, power, builds, disbands) {
 /**
  * Finalise winter: write new unit array and advance to next spring.
  */
-export async function writeWinterResolution(gameCode, newUnits, currentYear, historyEntry = null) {
+export async function writeWinterResolution(gameCode, newUnits, currentYear, historyEntry = null, lastOccupied = null) {
   await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
     units: newUnits,
     orders: {},
@@ -329,6 +338,7 @@ export async function writeWinterResolution(gameCode, newUnits, currentYear, his
     year: currentYear + 1,
     winterPhase: null,
     ...(historyEntry ? { history: arrayUnion(historyEntry) } : {}),
+    ...(lastOccupied ? { lastOccupied } : {}),
     updatedAt: serverTimestamp(),
   });
 }

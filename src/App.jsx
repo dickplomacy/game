@@ -215,6 +215,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   // setUnits will be used when resolver updates unit positions
   const [units, setUnits] = useState(STARTING_UNITS);
   const [owners, setOwners] = useState(() => ownersFromUnits(INITIAL_OWNERS, STARTING_UNITS));
+  const [lastOccupied, setLastOccupied] = useState(() => ownersFromUnits({}, STARTING_UNITS));
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [orders, setOrders] = useState({}); // { unitId: { type: 'move'|'support'|'convoy', dest?, target?, army? } }
   const [mode, setMode] = useState(null); // null | 'move' | 'support' | 'convoy'
@@ -270,6 +271,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     // Live occupation (units currently standing on a territory) is colored separately in
     // DipMap, so the darker "owned" shade never appears until ownership actually transfers.
     if (gameData.owners) setOwners(gameData.owners);
+    if (gameData.lastOccupied) setLastOccupied(gameData.lastOccupied);
     if ('lastPhaseLog' in gameData) setLastPhaseLog(gameData.lastPhaseLog ?? null);
     // Sync retreat phase from Firestore (null clears local retreat phase too)
     if (gameData.retreatPhase !== undefined) {
@@ -610,6 +612,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     if (pending.length > 0) {
       setUnits(result.units);
       setOwners(prev => ownersFromUnits(prev, result.units));
+      setLastOccupied(prev => ownersFromUnits(prev, result.units));
       setRetreatPhase({ dislodged: pending, retreatOrders: autoOrders });
     } else {
       applyRetreats(result.units, result.dislodged, autoOrders);
@@ -628,14 +631,17 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     const isFall = gameData.phase === 'fall-move';
     // SC ownership only updates at end of Fall
     const movedOwners = isFall ? ownersFromUnits(owners, result.units) : owners;
+    // lastOccupied tracks last-standing power for every territory, updated every resolution
+    const movedLastOccupied = ownersFromUnits(lastOccupied, result.units);
     const log = buildMoveLog(gameData.units ?? units, flatOrders, result, gameData.phase, gameData.year, owners, movedOwners);
     const moveEntry = { phase: gameData.phase, year: gameData.year, ordersByPower: historyMoveOrders(gameData.units ?? units, flatOrders) };
     if (pending.length > 0) {
       const retreatData = { dislodged: pending, retreatOrders: autoOrders };
-      await writeResolution(gameCode, result.units, movedOwners, retreatData, gameData.phase, gameData.year, null, null, log, [moveEntry]);
+      await writeResolution(gameCode, result.units, movedOwners, retreatData, gameData.phase, gameData.year, null, null, log, [moveEntry], movedLastOccupied);
     } else {
       const { newUnits, conflicts } = applyRetreatsCalc(result.units, result.dislodged, autoOrders);
       const finalOwners = isFall ? ownersFromUnits(movedOwners, newUnits) : owners;
+      const finalLastOccupied = ownersFromUnits(movedLastOccupied, newUnits);
       const winner = isFall ? checkWinner(finalOwners) : null;
       const winterData = isFall && !winner ? buildWinterData(finalOwners, newUnits) : null;
       const retreatEntries = buildRetreatLog(result.dislodged, autoOrders, conflicts);
@@ -645,7 +651,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
         const retreatPhaseName = gameData.phase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
         histEntries.push({ phase: retreatPhaseName, year: gameData.year, ordersByPower: historyRetreatOrders(result.dislodged, autoOrders) });
       }
-      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, fullLog, histEntries);
+      await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, fullLog, histEntries, finalLastOccupied);
     }
     resetMode();
   }
@@ -673,6 +679,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     const { newUnits } = applyRetreatsCalc(currentUnits, dislodged, retreatOrders);
     setUnits(newUnits);
     setOwners(prev => ownersFromUnits(prev, newUnits));
+    setLastOccupied(prev => ownersFromUnits(prev, newUnits));
     setRetreatPhase(null);
   }
 
@@ -686,6 +693,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     const { newUnits, conflicts } = applyRetreatsCalc(gameData.units ?? units, dislodged, fullOrders);
     const isFallRetreat = gameData.phase === 'fall-retreat';
     const finalOwners = isFallRetreat ? ownersFromUnits(owners, newUnits) : owners;
+    const finalLastOccupied = ownersFromUnits(lastOccupied, newUnits);
     const winner = isFallRetreat ? checkWinner(finalOwners) : null;
     const winterData = isFallRetreat && !winner ? buildWinterData(finalOwners, newUnits) : null;
     const retreatEntries = buildRetreatLog(dislodged, fullOrders, conflicts);
@@ -694,7 +702,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       ? { ...gameData.lastPhaseLog, retreatEntries }
       : null;
     const retreatEntry = { phase: gameData.phase, year: gameData.year, ordersByPower: historyRetreatOrders(dislodged, fullOrders) };
-    await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, updatedLog, [retreatEntry]);
+    await writeResolution(gameCode, newUnits, finalOwners, null, gameData.phase, gameData.year, winterData, winner, updatedLog, [retreatEntry], finalLastOccupied);
     resetMode();
   }
 
@@ -762,7 +770,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       }
     });
     const historyEntry = { phase: 'winter', year: gameData.year ?? 1901, ordersByPower: winterByPower };
-    await writeWinterResolution(gameCode, newUnits, gameData.year ?? 1901, historyEntry);
+    const finalLastOccupied = ownersFromUnits(lastOccupied, newUnits);
+    await writeWinterResolution(gameCode, newUnits, gameData.year ?? 1901, historyEntry, finalLastOccupied);
     resetMode();
   }
 
@@ -1222,6 +1231,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
               units={units}
               orders={orders}
               territoryOwners={owners}
+              lastOccupied={lastOccupied}
               selectedUnit={selectedUnit}
               validMoves={getValidMovesForMode()}
               onTerritoryClick={handleTerritoryClick}
