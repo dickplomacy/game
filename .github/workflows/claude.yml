@@ -9,7 +9,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  id-token: write  # Add this line for OIDC token fetching
+  id-token: write
 
 jobs:
   claude:
@@ -20,6 +20,8 @@ jobs:
       
       - name: Run Claude Code
         uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # Export as env var
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}  # Changed from CLAUDE_API_KEY
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}  # Also pass as input
           prompt: ${{ github.event.comment.body }}
