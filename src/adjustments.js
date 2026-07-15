@@ -56,13 +56,32 @@ export function getAvailableBuildSCs(power, ownerMap, unitList) {
 
 /**
  * Derive updated supply-centre ownership from new unit positions.
- * Only updates territories that are now occupied; other ownership is preserved.
+ * Only updates SC territories; non-SC ownership is tracked separately via lastOccupiedFromUnits.
  * @param {Object} prevOwners existing ownerMap
  * @param {Array}  newUnits   units after resolution
  * @returns {Object} updated ownerMap
  */
 export function ownersFromUnits(prevOwners, newUnits) {
   const next = { ...prevOwners };
+  newUnits.forEach(u => {
+    const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
+    if (SC_IDS.has(base)) {
+      next[base] = u.power;
+    }
+  });
+  return next;
+}
+
+/**
+ * Track the last occupier of every territory (SC and non-SC).
+ * Updated after every resolution (Spring and Fall), unlike ownersFromUnits which
+ * only updates SCs and only during Fall.
+ * @param {Object} prevLastOccupied existing lastOccupied map
+ * @param {Array}  newUnits         units after resolution
+ * @returns {Object} updated lastOccupied map
+ */
+export function lastOccupiedFromUnits(prevLastOccupied, newUnits) {
+  const next = { ...prevLastOccupied };
   newUnits.forEach(u => {
     const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
     next[base] = u.power;
