@@ -50,7 +50,7 @@ function isContestedSC(t, unitsByTerritory, territoryOwners) {
   return !!(owner && occupier && owner !== occupier && POWER_RGBA[owner] && POWER_RGBA[occupier]);
 }
 
-export function territoryFill(t, unitsByTerritory, territoryOwners) {
+export function territoryFill(t, unitsByTerritory, territoryOwners, lastOccupied = {}) {
   if (t.id.includes('-') || t.type === 'water' || t.type === 'impassable') return null;
   const owner = territoryOwners[t.id];
   const occupier = unitsByTerritory[t.id]?.power;
@@ -64,9 +64,9 @@ export function territoryFill(t, unitsByTerritory, territoryOwners) {
   if (t.supplyCenter && owner && POWER_RGBA[owner]) {
     return powerRgba(owner, 0.5);
   }
-  // Lighter (0.25): merely occupied (a unit is standing here now) or previously
-  // stamped, but ownership has not transferred yet. Current occupier takes priority.
-  const power = occupier || owner;
+  // Lighter (0.25): currently occupied (any territory), or for non-SC territories:
+  // last known occupier from lastOccupied, with fallback to owner map for old games.
+  const power = occupier || (!t.supplyCenter ? (lastOccupied[t.id] || owner) : null);
   if (power && POWER_RGBA[power]) {
     return powerRgba(power, 0.25);
   }
@@ -224,7 +224,7 @@ function UnitSymbol({ unit, selected, allianceBorder = null }) {
   );
 }
 
-export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set(), alliedPowers = new Set(), enemyPowers = new Set(), conflictPowers = new Set(), claimBorders = {} }) {
+export default function DipMap({ territoryOwners = {}, units = [], orders = {}, selectedUnit = null, validMoves = new Set(), onTerritoryClick, onTerritoryHover, demilTerritories = new Set(), alliedPowers = new Set(), enemyPowers = new Set(), conflictPowers = new Set(), claimBorders = {}, lastOccupied = {} }) {
   const tList = Object.values(territories);
   // Hydrate all units with current unitCoord so stale Firestore x/y never misplaces symbols or arrows
   const hydratedUnits = units.map(u => {
@@ -266,7 +266,7 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
           if (!t.svg) return null;
           const isValidMove = validMoves.has(t.id);
           const cls = getClass(t, territoryOwners) + (isValidMove ? ' valid-move' : '');
-          const fill = isValidMove ? 'rgba(255, 215, 0, 0.5)' : territoryFill(t, unitsByTerritory, territoryOwners);
+          const fill = isValidMove ? 'rgba(255, 215, 0, 0.5)' : territoryFill(t, unitsByTerritory, territoryOwners, lastOccupied);
           const handlers = {
             onClick: () => onTerritoryClick && onTerritoryClick(t.id),
             onMouseOver: () => onTerritoryHover && onTerritoryHover(t.id),

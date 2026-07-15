@@ -5,6 +5,7 @@ import {
   buildWinterData,
   getAvailableBuildSCs,
   ownersFromUnits,
+  lastOccupiedFromUnits,
 } from './adjustments';
 import { POWERS } from './winCondition';
 
@@ -180,12 +181,21 @@ describe('getAvailableBuildSCs', () => {
 // ── ownersFromUnits ──────────────────────────────────────────────────────────
 
 describe('ownersFromUnits', () => {
-  it('updates ownership for territories now occupied by units', () => {
+  it('updates SC ownership for territories occupied by units', () => {
     const prev = { lon: 'FRANCE', par: 'FRANCE' };
     const newUnits = [{ id: 'lon', power: 'ENGLAND' }];
     const result = ownersFromUnits(prev, newUnits);
     expect(result.lon).toBe('ENGLAND');
     expect(result.par).toBe('FRANCE'); // unchanged
+  });
+
+  it('does NOT update non-SC territories (per Diplomacy rules)', () => {
+    // ruh and bur are non-SC territories; occupation should not affect owners map
+    const prev = { lon: 'ENGLAND', ruh: 'GERMANY' };
+    const newUnits = [{ id: 'ruh', power: 'FRANCE' }];
+    const result = ownersFromUnits(prev, newUnits);
+    expect(result.ruh).toBe('GERMANY'); // non-SC, not updated
+    expect(result.lon).toBe('ENGLAND'); // SC, unchanged (no unit there)
   });
 
   it('preserves ownership of territories with no unit present', () => {
@@ -194,8 +204,8 @@ describe('ownersFromUnits', () => {
     expect(result).toEqual(prev);
   });
 
-  it('handles coast-variant unit ids by updating the base territory', () => {
-    // F stp-sc should update stp ownership, not stp-sc
+  it('handles coast-variant unit ids by updating the base SC territory', () => {
+    // F stp-sc should update stp ownership (stp is a SC), not stp-sc
     const prev = { stp: 'ENGLAND' };
     const newUnits = [{ id: 'stp-sc', power: 'RUSSIA' }];
     const result = ownersFromUnits(prev, newUnits);
@@ -208,5 +218,37 @@ describe('ownersFromUnits', () => {
     const prevCopy = { ...prev };
     ownersFromUnits(prev, [{ id: 'lon', power: 'ENGLAND' }]);
     expect(prev).toEqual(prevCopy);
+  });
+});
+
+// ── lastOccupiedFromUnits ────────────────────────────────────────────────────
+
+describe('lastOccupiedFromUnits', () => {
+  it('updates all territories (SC and non-SC) that units now occupy', () => {
+    const prev = { lon: 'FRANCE', ruh: 'GERMANY' };
+    const newUnits = [{ id: 'lon', power: 'ENGLAND' }, { id: 'ruh', power: 'FRANCE' }];
+    const result = lastOccupiedFromUnits(prev, newUnits);
+    expect(result.lon).toBe('ENGLAND');
+    expect(result.ruh).toBe('FRANCE');
+  });
+
+  it('preserves previous entries for territories with no current unit', () => {
+    const prev = { bur: 'FRANCE', lon: 'ENGLAND' };
+    const result = lastOccupiedFromUnits(prev, [{ id: 'lon', power: 'GERMANY' }]);
+    expect(result.bur).toBe('FRANCE'); // preserved — unit left
+    expect(result.lon).toBe('GERMANY');
+  });
+
+  it('handles coast-variant unit ids by updating the base territory', () => {
+    const prev = { stp: 'ENGLAND' };
+    const result = lastOccupiedFromUnits(prev, [{ id: 'stp-sc', power: 'RUSSIA' }]);
+    expect(result.stp).toBe('RUSSIA');
+  });
+
+  it('does not mutate the input object', () => {
+    const prev = { bur: 'FRANCE' };
+    const copy = { ...prev };
+    lastOccupiedFromUnits(prev, [{ id: 'bur', power: 'GERMANY' }]);
+    expect(prev).toEqual(copy);
   });
 });

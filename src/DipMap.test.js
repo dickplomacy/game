@@ -29,4 +29,27 @@ describe('territoryFill', () => {
     expect(territoryFill({ id: 'swi', type: 'impassable' }, {}, {})).toBeNull();
     expect(territoryFill({ id: 'spa-nc', type: 'land' }, {}, {})).toBeNull();
   });
+
+  it('shows lighter color from lastOccupied when a non-SC territory is vacant', () => {
+    const fill = territoryFill(plain, {}, {}, { ruh: 'FRANCE' });
+    expect(fill).toMatch(/rgba\(.*0\.25\)/);
+  });
+
+  it('lastOccupied is ignored for vacant SCs (owner map takes priority)', () => {
+    // An unowned SC that has a lastOccupied entry should not show the lighter color
+    // since SC display is driven only by the owners map (darker shade)
+    const fill = territoryFill(sc, {}, {}, { mun: 'FRANCE' });
+    expect(fill).toBeNull();
+  });
+
+  it('current occupier takes priority over lastOccupied for non-SC territories', () => {
+    // Italy now has a unit there; France was the last occupier — Italy's color shows
+    const fill = territoryFill(plain, { ruh: { power: 'ITALY' } }, {}, { ruh: 'FRANCE' });
+    expect(fill).toContain('34');   // Italy green rgb[0]=34
+  });
+
+  it('falls back to owners map for non-SC territory when lastOccupied is empty (backward compat)', () => {
+    const fill = territoryFill(plain, {}, { ruh: 'AUSTRIA' }, {});
+    expect(fill).toMatch(/rgba\(.*0\.25\)/);
+  });
 });

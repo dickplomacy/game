@@ -156,6 +156,13 @@ export async function createGame(settings = {}) {
     owners[base] = u.power;
   });
 
+  // lastOccupied tracks who last stood on every territory — initialized from starting positions
+  const lastOccupied = {};
+  STARTING_UNITS.forEach(u => {
+    const base = u.id.includes('-') ? u.id.split('-')[0] : u.id;
+    lastOccupied[base] = u.power;
+  });
+
   const gameData = {
     code,
     phase: 'spring-move',
@@ -163,6 +170,7 @@ export async function createGame(settings = {}) {
     players,
     units: STARTING_UNITS,
     owners,
+    lastOccupied,
     orders: {},
     draftOrders: {},
     retreatPhase: null,
@@ -261,8 +269,9 @@ export async function submitRetreatOrders(gameCode, retreatOrdersMap) {
  * Write the result of order resolution back to Firestore.
  * - retreatData: null | { dislodged, retreatOrders } — if set, enter retreat phase
  * - winterData: null | { adjustments, orders } — if set (fall only), enter winter phase
+ * - lastOccupied: null | { [tid]: power } — last occupier of every territory (updated every season)
  */
-export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null, winner = null, log = null, historyEntries = []) {
+export async function writeResolution(gameCode, newUnits, newOwners, retreatData, currentPhase, currentYear, winterData = null, winner = null, log = null, historyEntries = [], lastOccupied = null) {
   let nextPhase, nextYear;
   if (retreatData) {
     nextPhase = currentPhase === 'spring-move' ? 'spring-retreat' : 'fall-retreat';
@@ -283,6 +292,7 @@ export async function writeResolution(gameCode, newUnits, newOwners, retreatData
   await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
     units: newUnits,
     owners: newOwners,
+    ...(lastOccupied !== null ? { lastOccupied } : {}),
     orders: {},
     draftOrders: {},
     phase: nextPhase,
@@ -321,9 +331,10 @@ export async function submitWinterOrders(gameCode, power, builds, disbands) {
 /**
  * Finalise winter: write new unit array and advance to next spring.
  */
-export async function writeWinterResolution(gameCode, newUnits, currentYear, historyEntry = null) {
+export async function writeWinterResolution(gameCode, newUnits, currentYear, historyEntry = null, lastOccupied = null) {
   await updateDoc(doc(db, 'games', gameCode.toUpperCase()), {
     units: newUnits,
+    ...(lastOccupied !== null ? { lastOccupied } : {}),
     orders: {},
     phase: 'spring-move',
     year: currentYear + 1,
