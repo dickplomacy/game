@@ -264,8 +264,9 @@ export default function DipMap({ territoryOwners = {}, units = [], orders = {}, 
       <g transform="translate(-195 -170)">
         {tList.map(t => {
           if (!t.svg) return null;
-          const cls = getClass(t, territoryOwners) + (validMoves.has(t.id) ? ' valid-move' : '');
-          const fill = territoryFill(t, unitsByTerritory, territoryOwners);
+          const isValidMove = validMoves.has(t.id);
+          const cls = getClass(t, territoryOwners) + (isValidMove ? ' valid-move' : '');
+          const fill = isValidMove ? 'rgba(255, 215, 0, 0.5)' : territoryFill(t, unitsByTerritory, territoryOwners);
           const handlers = {
             onClick: () => onTerritoryClick && onTerritoryClick(t.id),
             onMouseOver: () => onTerritoryHover && onTerritoryHover(t.id),
