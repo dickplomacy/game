@@ -777,14 +777,15 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   }
 
   function getValidMovesForMode() {
+    const myUnitFilter = myPowers.length > 0 ? (u => myPowers.includes(u.power)) : (() => true);
     if (mode === 'support') {
-      if (!selectedUnit) return unitPositions(() => true);
+      if (!selectedUnit) return unitPositions(myUnitFilter);
       if (!supportTarget) return unitPositions(u => u.id !== selectedUnit.id);
       // Step 3: destination must be somewhere the supporter can legally move to
       return getDisplayMoves(selectedUnit);
     }
     if (mode === 'convoy') {
-      if (!selectedUnit) return unitPositions(u => u.type === 'F' && territories[u.id] && territories[u.id].type === 'water');
+      if (!selectedUnit) return unitPositions(u => u.type === 'F' && territories[u.id] && territories[u.id].type === 'water' && myUnitFilter(u));
       if (!convoyArmy) return unitPositions(u => u.type === 'A');
       // Step 3: any non-water territory
       return new Set(Object.keys(territories).filter(id => {
@@ -793,7 +794,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       }));
     }
     // move mode
-    if (!selectedUnit) return mode === 'move' ? unitPositions(() => true) : new Set();
+    if (!selectedUnit) return mode === 'move' ? unitPositions(myUnitFilter) : new Set();
     return getDisplayMoves(selectedUnit);
   }
 
