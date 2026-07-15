@@ -307,10 +307,10 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     }
   }, [gameData]);
 
-  // Auto-resolve when all orders are in (admin only, requires settings.autoResolve)
+  // Auto-resolve when all orders are in (requires settings.autoResolve)
   const autoResolvingRef = useRef(false);
   useEffect(() => {
-    if (!isAdmin || !gameData?.settings?.autoResolve || autoResolvingRef.current) return;
+    if (!isMultiplayer || !gameData?.settings?.autoResolve || autoResolvingRef.current) return;
     const phase = gameData.phase;
     if (phase === 'spring-move' || phase === 'fall-move') {
       const allIn = activePowers.every(p => gameData.orders?.[p] != null);
