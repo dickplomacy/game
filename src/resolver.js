@@ -438,6 +438,30 @@ function resolveWithStrength(moves, occupied, convoyed, attackStrength, holdStre
         // Equal strength → wait; cycle detection handles the standoff
       }
     }
+
+    // ── Standoff detection: resolve equal-strength multi-unit conflicts ───────
+    // When 2+ pending units compete for the same destination with tied max strength
+    // and no pending occupant might vacate, none of them can ever win — fail all
+    // now so that units waiting on this outcome (e.g. a supported attack on the
+    // losing unit's position) can be resolved in the next iteration rather than
+    // being incorrectly swept up by cycle detection.
+    const pendingByDest = new Map();
+    for (const uid of Object.keys(status)) {
+      if (status[uid] !== 'pending') continue;
+      const d = moves[uid];
+      if (!pendingByDest.has(d)) pendingByDest.set(d, []);
+      pendingByDest.get(d).push(uid);
+    }
+    for (const [sdDest, movers] of pendingByDest) {
+      if (movers.length < 2) continue;
+      const occ = unitAt(sdDest);
+      if (occ && status[occ] === 'pending') continue; // occupant might vacate — wait
+      const maxStr = Math.max(...movers.map(m => attackStrength[m] ?? 1));
+      if (movers.filter(m => (attackStrength[m] ?? 1) === maxStr).length >= 2) {
+        // Standoff: no mover can win — fail all of them
+        movers.forEach(m => { if (status[m] !== 'failed') { status[m] = 'failed'; changed = true; } });
+      }
+    }
   }
 
   // ── Cycle detection ────────────────────────────────────────────────────────

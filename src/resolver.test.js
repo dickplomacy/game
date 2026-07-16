@@ -769,3 +769,74 @@ describe('void orders', () => {
   });
 });
 
+// ── Spring 1909 scenario: bounced fleet dislodged from original position ──────
+//
+// Issue #18: F BOT (Germany) bounced trying to move to SWE (vs F NWY).
+// F FIN (England, strength 2, supported by F BAL) attacks BOT.
+// Since F BOT bounced back, its hold strength is 1 < 2 → it should be dislodged.
+//
+// All retreat territories are blocked:
+//   fin  → attacker origin
+//   swe  → standoff (bot and nwy both bounced there)
+//   bal  → occupied by F BAL (supporter, stays)
+//   lvn  → occupied by A LVN (Russia, holds)
+//   stp-sc → A MOS moved into STP this turn
+// → F BOT must disband (eliminated).
+//
+// bot fleet adj: [bal, fin, lvn, stp-sc, swe]
+// fin fleet adj: [bot, stp-sc, swe]
+// nwy fleet adj: [bar, nth, nrg, ska, stp-nc, swe]
+// bal fleet adj: [ber, bot, den, kie, lvn, pru, swe]
+
+describe('Spring 1909 — bounced fleet dislodged from original position (issue #18)', () => {
+  it('fleet that bounced is dislodged by a supported attack on its original position', () => {
+    // F bot (GERMANY) → swe: bounces vs F nwy (ENGLAND) → swe (equal strength, standoff)
+    // F fin (ENGLAND) → bot, supported by F bal (ENGLAND): attack strength 2
+    // F bot bounced back to bot, hold strength 1 — 2 > 1 → F bot dislodged
+    const { units, dislodged } = resolve(
+      [F('bot', 'GERMANY'), F('fin', 'ENGLAND'), F('bal', 'ENGLAND'), F('nwy', 'ENGLAND')],
+      {
+        bot: { type: 'move', dest: 'swe' },
+        fin: { type: 'move', dest: 'bot' },
+        bal: { type: 'support', target: 'fin', dest: 'bot' },
+        nwy: { type: 'move', dest: 'swe' },
+      }
+    );
+    // F fin must have dislodged F bot
+    const botDislodged = dislodged.find(d => d.unit.id === 'bot');
+    expect(botDislodged).toBeTruthy();
+    // F fin should have moved into bot
+    expect(at(units, 'bot')?.power).toBe('ENGLAND');
+    // Retreat to attacker origin (fin) is forbidden
+    expect(botDislodged.retreatOptions).not.toContain('fin');
+    // Retreat to standoff territory (swe) is forbidden
+    expect(botDislodged.retreatOptions).not.toContain('swe');
+    // Retreat to supporter's territory (bal, occupied and staying) is forbidden
+    expect(botDislodged.retreatOptions).not.toContain('bal');
+  });
+
+  it('F BOT is eliminated — no valid retreat territories (full Spring 1909 scenario)', () => {
+    // Same as above plus:
+    //   A lvn (RUSSIA) holds  → lvn occupied, can't retreat there
+    //   A mos (RUSSIA) → stp  → stp-sc blocked (A mos moved into stp this turn)
+    // All five adjacencies of bot are blocked → retreatOptions = [] → must disband
+    const { dislodged } = resolve(
+      [
+        F('bot', 'GERMANY'),
+        F('fin', 'ENGLAND'), F('bal', 'ENGLAND'), F('nwy', 'ENGLAND'),
+        A('lvn', 'RUSSIA'), A('mos', 'RUSSIA'),
+      ],
+      {
+        bot: { type: 'move', dest: 'swe' },
+        fin: { type: 'move', dest: 'bot' },
+        bal: { type: 'support', target: 'fin', dest: 'bot' },
+        nwy: { type: 'move', dest: 'swe' },
+        mos: { type: 'move', dest: 'stp' }, // blocks stp-sc retreat via attackerOf
+      }
+    );
+    const botDislodged = dislodged.find(d => d.unit.id === 'bot');
+    expect(botDislodged).toBeTruthy();
+    expect(botDislodged.retreatOptions).toHaveLength(0); // no valid retreats → must disband
+  });
+});
+
