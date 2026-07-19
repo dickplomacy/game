@@ -1,16 +1,13 @@
-# .github/workflows/deepseek-bot.yml
-name: DeepSeek Coding Assistant
+name: DeepSeek Bot
 
 on:
   issue_comment:
-    types:
-      - created
+    types: [created]
   pull_request_review_comment:
-    types:
-      - created
+    types: [created]
 
 permissions:
-  contents: write
+  contents: read
   issues: write
   pull-requests: write
 
@@ -18,112 +15,123 @@ jobs:
   respond:
     if: contains(github.event.comment.body, '@deepseek') || contains(github.event.review.body, '@deepseek')
     runs-on: ubuntu-latest
-    outputs:
-      success: ${{ steps.api_call.outputs.success }}
-      branch_name: ${{ steps.create_branch.outputs.branch_name }}
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Install jq
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Call DeepSeek API
-        id: api_call
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      - name: Collect Code Files
+        id: collect
         run: |
-          set -e
-          RESPONSE=$(curl -sS -X POST https://api.deepseek.com/v1/chat/completions \
-            -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"system\",\"content\":\"Expert coding assistant. Match Claude Sonnet 4.6 quality.\"},{\"role\":\"user\",\"content\":\"${{ github.event.comment.body }}\"}],\"temperature\":0.2,\"max_tokens\":8000}")
-          
-          CONTENT=$(echo "${RESPONSE}" | jq -r '.choices[0].message.content')
-          
+          CONTEXT_FILE=/tmp/code_context.txt
+          touch "$CONTEXT_FILE"
+          KEYWORDS=$(echo "${{ github.event.comment.body }}" | tr '[:upper:]' '[:lower:]' | sed 's/@[a-zA-Z0-9_-]*//g' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | grep -oE '\b[a-z]{4,}\b' | sort -u | head -15)
+          CODE_FILES=$(find . -type f \( -name "*.py" -o -name "*.js" -o -name "*.ts" \) ! -path "./.git/*" ! -path "./node_modules/*" 2>/dev/null | head -50)
+          for FILE in $CODE_FILES; do
+            SCORE=0
+            for KW in $KEYWORDS; do
+              if echo "$FILE" | grep -qi "$KW"; then
+                SCORE=$((SCORE + 5))
+              fi
+              MATCHES=$(head -200 "$FILE" 2>/dev/null | grep -oi "$KW" | wc -l)
+              SCORE=$((SCORE + MATCHES))
+            done
+            if [ "$SCORE" -gt 2 ] && [ -f "$FILE" ]; then
+              FILE_SIZE=$(wc -c < "$FILE")
+              if [ "$FILE_SIZE" -lt 30000 ]; then
+                echo "--- $FILE ---" >> "$CONTEXT_FILE"
+                cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+              fi
+            fi
+          done
+          CONTEXT_BYTES=$(wc -c < "$CONTEXT_FILE" 2>/dev/null || echo 0)
+          echo "bytes=$CONTEXT_BYTES" >> $GITHUB_OUTPUT
+
+      - name: Build Prompt
+        id: prompt
+        run: |
+          PROMPT_FILE=/tmp/prompt.txt
+          printf '%s\n' "You are an expert coding assistant. Provide fixes that can be applied directly." > "$PROMPT_FILE"
+          printf '%s\n' "Repository: ${{ github.repository }}" >> "$PROMPT_FILE"
+          printf '%s\n' "Issue: #${{ github.event.issue.number }}" >> "$PROMPT_FILE"
+          printf '%s\n' "" >> "$PROMPT_FILE"
+          printf '%s\n' "USER REQUEST:" >> "$PROMPT_FILE"
+          printf '%s\n' "${{ github.event.comment.body }}" >> "$PROMPT_FILE"
+          printf '%s\n' "" >> "$PROMPT_FILE"
+          CONTEXT_BYTES=${{ steps.collect.outputs.bytes }}
+          if [ "$CONTEXT_BYTES" -gt 100 ]; then
+            printf '%s\n' "CODEBASE CONTEXT:" >> "$PROMPT_FILE"
+            cat /tmp/code_context.txt >> "$PROMPT_FILE"
+          fi
+          echo "file=/tmp/prompt.txt" >> $GITHUB_OUTPUT
+
+      - name: Call DeepSeek API
+        id: api
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          PROMPT_CONTENT=$(cat "${{ steps.prompt.outputs.file }}")
+          RESPONSE=$(curl -sS -X POST https://api.deepseek.com/v1/chat/completions -H "Authorization: Bearer $DEEPSEEK_KEY" -H "Content-Type: application/json" -d "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"system\",\"content\":\"Expert coding assistant.\"},{\"role\":\"user\",\"content\":\"${PROMPT_CONTENT}\"}],\"temperature\":0.2,\"max_tokens\":8000}")
+          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
           if [ ${#CONTENT} -gt 100 ]; then
-            echo "${CONTENT}" > /tmp/response.txt
-            echo "success=true" >> $GITHUB_OUTPUT
+            echo "$CONTENT" > /tmp/response.txt
+            echo "status=success" >> $GITHUB_OUTPUT
           else
-            echo "::error::Invalid response from API"
             exit 1
           fi
 
-      - name: Post Response Comment
-        if: steps.api_call.outputs.success == 'true'
+      - name: Post Comment
+        if: steps.api.outputs.status == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --body-file /tmp/response.txt
+          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body-file /tmp/response.txt
 
-      - name: Create Branch
-        if: steps.api_call.outputs.success == 'true'
-        id: create_branch
+      - name: Create Fix Branch
+        if: steps.api.outputs.status == 'success'
+        id: branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH_NAME="deepseek-fix-${{ github.event.issue.number }}-$(date +%s)"
-          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
-        
-          git config user.email "bot@deepseek.actions"
+          BRANCH="deepseek-fix-${{ github.event.issue.number }}-$(date +%s)"
+          echo "name=$BRANCH" >> $GITHUB_OUTPUT
+          git config user.email "bot@deepseek.ai"
           git config user.name "DeepSeek Bot"
-          git checkout -b "${BRANCH_NAME}"
+          git checkout -b "$BRANCH"
 
-      - name: Apply Code Fixes
-        if: steps.api_call.outputs.success == 'true'
-        id: apply_fixes
+      - name: Apply Fixes
+        if: steps.api.outputs.status == 'success'
+        id: fixes
         run: |
-          python3 /workspace/apply_fixes.py
-          
-          if [ -s /tmp/changed_files.txt ]; then
+          python3 .github/scripts/apply_fixes.py
+          if [ -s /tmp/changed.txt ]; then
             while IFS= read -r FILE; do
-              if [ -n "${FILE}" ]; then
-                git add "${FILE}"
-              fi
-            done < /tmp/changed_files.txt
-            
+              [ -n "$FILE" ] && git add "$FILE"
+            done < /tmp/changed.txt
             if ! git diff --cached --quiet; then
-              git commit -m "[DeepSeek] Auto-fix for issue #${{ github.event.issue.number }}"
-              git push -u origin "${{ steps.create_branch.outputs.branch_name }}"
-              echo "changes_applied=true" >> $GITHUB_OUTPUT
-            else
-              echo "changes_applied=false" >> $GITHUB_OUTPUT
+              git commit -m "[DeepSeek] Auto-fix for issue ${{ github.event.issue.number }}"
+              git push -u origin "${{ steps.branch.outputs.name }}"
+              echo "applied=true" >> $GITHUB_OUTPUT
             fi
-          else
-            echo "changes_applied=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Pull Request
-        if: steps.apply_fixes.outputs.changes_applied == 'true'
-        id: create_pr
+      - name: Create PR
+        if: steps.fixes.outputs.applied == 'true'
+        id: pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_URL=$(gh pr create \
-            --title "[DeepSeek] Fix for #${{ github.event.issue.number }}" \
-            --body "Auto-generated fix by @deepseek bot." \
-            --base "${{ github.event.repository.default_branch }}" \
-            --head "${{ steps.create_branch.outputs.branch_name }}")
-          
-          echo "pr_url=${PR_URL}" >> $GITHUB_OUTPUT
+          URL=$(gh pr create --title "[DeepSeek] Fix #${{ github.event.issue.number }}" --body "Auto-generated by @deepseek" --base "${{ github.event.repository.default_branch }}" --head "${{ steps.branch.outputs.name }}")
+          echo "url=$URL" >> $GITHUB_OUTPUT
 
-      - name: Post PR Link
-        if: steps.create_pr.outputs.pr_url != ''
+      - name: Notify PR
+        if: steps.pr.outputs.url != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} \
-            --repo ${{ github.repository }} \
-            --body "✨ PR created: ${{ steps.create_pr.outputs.pr_url }}"
-
-      - name: Upload Scripts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: scripts
-          path: /workspace/
+          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body "PR created: ${{ steps.pr.outputs.url }}"
