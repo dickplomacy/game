@@ -40,8 +40,7 @@ jobs:
             echo "item_type=issue" >> $GITHUB_OUTPUT
             echo "item_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
             echo "has_diff=false" >> $GITHUB_OUTPUT
-            TITLE=$(gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }} --jq '.title' 2>/dev/null || echo "Untitled")
-            echo "item_title=$TITLE" >> $GITHUB_OUTPUT
+            echo "item_title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
           elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
             echo "item_type=pr" >> $GITHUB_OUTPUT
             echo "item_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
