@@ -1,0 +1,199 @@
+# .github/workflows/deepseek-bot.yml
+name: DeepSeek Coding Assistant
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, reopened]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  respond:
+    if: >
+      contains(github.event.comment.body, '@deepseek') ||
+      contains(github.event.issue.body, '@deepseek') ||
+      contains(github.event.review.body, '@deepseek')
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq bc
+
+      - name: Detect Event & Extract Data
+        id: extract_data
+        run: |
+          if [ "${{ github.event_name }}" == "issue_comment" ]; then
+            echo "item_type=issue" >> $GITHUB_OUTPUT
+            echo "item_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+            echo "has_diff=false" >> $GITHUB_OUTPUT
+            TITLE=$(gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }} --jq '.title' 2>/dev/null || echo "Untitled")
+            echo "item_title=$TITLE" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
+            echo "item_type=pr" >> $GITHUB_OUTPUT
+            echo "item_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+            echo "has_diff=true" >> $GITHUB_OUTPUT
+            echo "item_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          else
+            echo "item_type=issue" >> $GITHUB_OUTPUT
+            echo "item_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+            echo "has_diff=false" >> $GITHUB_OUTPUT
+            echo "item_title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
+          fi
+          echo "repo=${{ github.repository }}" >> $GITHUB_OUTPUT
+
+      - name: Collect Code Context
+        id: collect_context
+        run: |
+          CONTEXT_FILE="/tmp/code_context.txt"
+          touch "$CONTEXT_FILE"
+          if [ "${{ steps.extract_data.outputs.has_diff }}" == "true" ]; then
+            FILES=$(gh api repos/${{ github.repository }}/pulls/${{ steps.extract_data.outputs.item_number }}/files --jq '.[].filename' 2>/dev/null || echo "")
+            for FILE in $FILES; do
+              if [ -f "$FILE" ]; then
+                echo "=== FILE: $FILE ===" >> "$CONTEXT_FILE"
+                head -300 "$FILE" 2>/dev/null >> "$CONTEXT_FILE" || true
+                echo "" >> "$CONTEXT_FILE"
+              fi
+            done
+          fi
+          CONTEXT_BYTES=$(stat -c%s "$CONTEXT_FILE" 2>/dev/null || echo "0")
+          echo "context_bytes=$CONTEXT_BYTES" >> $GITHUB_OUTPUT
+
+      - name: Extract User Request
+        id: extract_request
+        run: |
+          if [ "${{ github.event_name }}" == "issue_comment" ]; then
+            RAW="${{ github.event.comment.body }}"
+          elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
+            RAW="${{ github.event.review.body }}"
+          else
+            RAW="${{ github.event.issue.body }}"
+          fi
+          REQUEST=$(echo "$RAW" | sed -n 's/.*@deepseek\s*//IP' | head -1)
+          if [ -z "$REQUEST" ]; then
+            REQUEST="$RAW"
+          fi
+          echo "$REQUEST" > /tmp/request.txt
+          REQUEST_LEN=$(wc -c < /tmp/request.txt)
+          echo "request_length=$REQUEST_LEN" >> $GITHUB_OUTPUT
+
+      - name: Build Complete Prompt
+        id: build_prompt
+        run: |
+          PROMPT_FILE="/tmp/prompt.txt"
+          printf '%s\n' \
+            "You are a senior software engineer providing expert coding assistance. Your quality should match or exceed Claude Sonnet 4.6." \
+            "" \
+            "OUTPUT REQUIREMENTS:" \
+            "- Be specific and actionable—avoid vague advice" \
+            "- Include complete, working code blocks with language syntax" \
+            "- Reference specific files and line numbers when applicable" \
+            "- Use Markdown for formatting" \
+            "- Structure: Summary → Analysis → Solution → Verification Steps" \
+            "- Flag potential breaking changes" \
+            "- Keep responses concise but thorough" \
+            "" \
+            "Repository: ${{ steps.extract_data.outputs.repo }}" \
+            "Issue: #${{ steps.extract_data.outputs.item_number }}" \
+            "Title: ${{ steps.extract_data.outputs.item_title }}" \
+            "" \
+            "USER REQUEST:" > "$PROMPT_FILE"
+          cat /tmp/request.txt >> "$PROMPT_FILE"
+          echo "" >> "$PROMPT_FILE"
+          if [ "${{ steps.collect_context.outputs.context_bytes }}" -gt 100 ]; then
+            echo "RELEVANT CODE (first 300 lines of modified files):" >> "$PROMPT_FILE"
+            cat /tmp/code_context.txt >> "$PROMPT_FILE"
+          fi
+          echo "prompt_file=$PROMPT_FILE" >> $GITHUB_OUTPUT
+
+      - name: Call DeepSeek API
+        id: ai_call
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "::error::DEEPSEEK_API_KEY not set"
+            exit 1
+          fi
+          API_URL="https://api.deepseek.com/v1/chat/completions"
+          MAX_RETRIES=3
+          SUCCESS=false
+          for attempt in 1 2 3; do
+            echo "API call attempt $attempt/$MAX_RETRIES" >&2
+            REQUEST_FILE="/tmp/request_body.json"
+            printf '{"model":"deepseek-v4-pro","temperature":0.2,"max_tokens":8000}' > "$REQUEST_FILE"
+            PROMPT_CONTENT=$(cat "${{ steps.build_prompt.outputs.prompt_file }}")
+            jq --arg content "$PROMPT_CONTENT" \
+               '.messages = [{"role":"system","content":"Expert coding assistant matching Claude Sonnet 4.6 quality"},{"role":"user","content":$content}]' \
+               "$REQUEST_FILE" > /tmp/request_body_full.json
+            RESPONSE_FILE="/tmp/response.json"
+            curl -sS --connect-timeout 30 --max-time 300 \
+              -X POST "$API_URL" \
+              -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "User-Agent: GitHub-Actions-DeepSeek-Bot/v1" \
+              -d @/tmp/request_body_full.json \
+              -o "$RESPONSE_FILE"
+            if jq -e '.choices[0].message.content != null' "$RESPONSE_FILE" >/dev/null 2>&1; then
+              CONTENT=$(jq -r '.choices[0].message.content' "$RESPONSE_FILE")
+              CONTENT_LEN=${#CONTENT}
+              if [ "$CONTENT_LEN" -gt 100 ]; then
+                echo "Valid response received ($CONTENT_LEN characters)" >&2
+                echo "$CONTENT" > /tmp/response.txt
+                INPUT_TOKENS=$(jq -r '.usage.prompt_tokens // 0' "$RESPONSE_FILE")
+                OUTPUT_TOKENS=$(jq -r '.usage.completion_tokens // 0' "$RESPONSE_FILE")
+                echo "input_tokens=$INPUT_TOKENS" >> $GITHUB_OUTPUT
+                echo "output_tokens=$OUTPUT_TOKENS" >> $GITHUB_OUTPUT
+                SUCCESS=true
+                break
+              else
+                echo "Response too short ($CONTENT_LEN characters), retrying..." >&2
+              fi
+            else
+              ERROR_MSG=$(jq -r '.error.message // "Unknown error"' "$RESPONSE_FILE" 2>/dev/null || echo "Invalid response format")
+              echo "API error: $ERROR_MSG" >&2
+            fi
+            if [ $attempt -eq $MAX_RETRIES ]; then
+              echo "::error::All $MAX_RETRIES API attempts failed"
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$SUCCESS" = false ]; then
+            echo "::error::Failed to get valid response from DeepSeek"
+            exit 1
+          fi
+
+      - name: Post Response to GitHub Issue/PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment \
+            "${{ steps.extract_data.outputs.item_number }}" \
+            --repo "${{ steps.extract_data.outputs.repo }}" \
+            --body-file "/tmp/response.txt"
+
+      - name: Execution Summary
+        run: |
+          echo "===== DEEPSEEK BOT COMPLETE =====" >&2
+          echo "Repository: ${{ steps.extract_data.outputs.repo }}" >&2
+          echo "Item: #${{ steps.extract_data.outputs.item_number }}" >&2
+          echo "Context bytes: ${{ steps.collect_context.outputs.context_bytes }}" >&2
+          echo "Input tokens: ${{ steps.ai_call.outputs.input_tokens }}" >&2
+          echo "Output tokens: ${{ steps.ai_call.outputs.output_tokens }}" >&2
+          echo "=================================" >&2
