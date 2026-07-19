@@ -191,7 +191,7 @@ Three territories have two separately named coasts:
 |-----------|------|
 | Unit ordered to move to its own territory | Treated as Hold |
 | Move to non-adjacent territory (no convoy) | Illegal → treated as Hold |
-| Support for a move the target unit isn't making | Support has **no effect** — the supporter holds in place but contributes no strength to any unit. It does NOT automatically become hold support. |
+| Support for a move the target unit isn't making | Support has **no effect** — the supporter holds in place but contributes no strength to any unit. It does NOT automatically become hold support. **This includes support-hold ordered for a unit that was itself given a move order.** |
 | Fleet tries to convoy but is on a coast | Illegal convoy — fleet is treated as holding |
 | Circular movement (A→B, B→C, C→A) with no opposition | All moves succeed |
 | Circular movement with one unit bounced | All fail — none move |
