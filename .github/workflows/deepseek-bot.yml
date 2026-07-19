@@ -23,53 +23,130 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq tree
+
+      - name: Show Repo Structure
+        run: |
+          echo "=== Repository Files ===" >&2
+          find . -type f -name "*.js" -o -name "*.py" -o -name "*.ts" -o -name "*.java" 2>/dev/null | head -50 >&2
+          echo "=======================" >&2
 
       - name: Collect Code Files
         id: collect
         run: |
           CONTEXT_FILE=/tmp/code_context.txt
-          touch "$CONTEXT_FILE"
-          KEYWORDS=$(echo "${{ github.event.comment.body }}" | tr '[:upper:]' '[:lower:]' | sed 's/@[a-zA-Z0-9_-]*//g' | sed 's/[^a-z0-9]/ /g' | tr -s ' ' | grep -oE '\b[a-z]{4,}\b' | sort -u | head -15)
-          CODE_FILES=$(find . -type f \( -name "*.py" -o -name "*.js" -o -name "*.ts" \) ! -path "./.git/*" ! -path "./node_modules/*" 2>/dev/null | head -50)
+          DEBUG_FILE=/tmp/debug_log.txt
+          > "$CONTEXT_FILE"
+          > "$DEBUG_FILE"
+
+          # Extract keywords from comment
+          COMMENT="${{ github.event.comment.body }}"
+          echo "Original comment: $COMMENT" >> "$DEBUG_FILE"
+
+          KEYWORDS=$(echo "$COMMENT" | tr '[:upper:]' '[:lower:]' | \
+            sed 's/@[a-zA-Z0-9_-]*//g' | \
+            sed 's/[^a-z0-9]/ /g' | \
+            tr -s ' ' | \
+            grep -oE '\b[a-z]{4,}\b' | sort -u | head -15)
+
+          echo "Extracted keywords: $KEYWORDS" >> "$DEBUG_FILE"
+
+          # Find ALL code files (be aggressive)
+          CODE_FILES=$(find . -type f \( \
+            -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \
+            -o -name "*.py" -o -name "*.java" -o -name "*.go" -o -name "*.rb" \
+            -o -name "*.php" -o -name "*.c" -o -name "*.cpp" -o -name "*.h" \
+            \) ! -path "./.git/*" ! -path "./node_modules/*" ! -path "./vendor/*" 2>/dev/null)
+
+          echo "Found ${CODE_FILES}" | wc -l | xargs -I {} echo "Total code files found: {}" >> "$DEBUG_FILE"
+          echo "All code files:" >> "$DEBUG_FILE"
+          echo "$CODE_FILES" >> "$DEBUG_FILE"
+
+          # Score each file by keyword matches
           for FILE in $CODE_FILES; do
-            SCORE=0
-            for KW in $KEYWORDS; do
-              if echo "$FILE" | grep -qi "$KW"; then
-                SCORE=$((SCORE + 5))
-              fi
-              MATCHES=$(head -200 "$FILE" 2>/dev/null | grep -oi "$KW" | wc -l)
-              SCORE=$((SCORE + MATCHES))
-            done
-            if [ "$SCORE" -gt 2 ] && [ -f "$FILE" ]; then
-              FILE_SIZE=$(wc -c < "$FILE")
-              if [ "$FILE_SIZE" -lt 30000 ]; then
-                echo "--- $FILE ---" >> "$CONTEXT_FILE"
-                cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+            if [ -f "$FILE" ]; then
+              SCORE=0
+
+              # Check if keyword appears in filename
+              for KW in $KEYWORDS; do
+                if echo "$FILE" | grep -qi "$KW"; then
+                  SCORE=$((SCORE + 10))
+                  echo "Matched keyword '$KW' in filename: $FILE" >> "$DEBUG_FILE"
+                fi
+
+                # Check file content (first 300 lines)
+                CONTENT_SAMPLE=$(head -300 "$FILE" 2>/dev/null | tr '[:upper:]' '[:lower:]')
+                MATCHES=$(echo "$CONTENT_SAMPLE" | grep -oi "$KW" 2>/dev/null | wc -l)
+                if [ "$MATCHES" -gt 0 ]; then
+                  SCORE=$((SCORE + MATCHES))
+                fi
+              done
+
+              echo "File: $FILE, Score: $SCORE" >> "$DEBUG_FILE"
+
+              # Include files with score > 0
+              if [ "$SCORE" -gt 0 ]; then
+                FILE_SIZE=$(wc -c < "$FILE" 2>/dev/null || echo 0)
+                if [ "$FILE_SIZE" -lt 50000 ]; then
+                  echo "--- START: $FILE (score=$SCORE, size=$FILE_SIZE bytes) ---" >> "$CONTEXT_FILE"
+                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                  echo "--- END: $FILE ---" >> "$CONTEXT_FILE"
+                  echo "" >> "$CONTEXT_FILE"
+                else
+                  echo "--- START: $FILE (truncated, size=$FILE_SIZE bytes) ---" >> "$CONTEXT_FILE"
+                  head -400 "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                  echo "--- END: $FILE (truncated) ---" >> "$CONTEXT_FILE"
+                  echo "" >> "$CONTEXT_FILE"
+                fi
               fi
             fi
           done
+
           CONTEXT_BYTES=$(wc -c < "$CONTEXT_FILE" 2>/dev/null || echo 0)
+          echo "Final context size: $CONTEXT_BYTES bytes" >> "$DEBUG_FILE"
           echo "bytes=$CONTEXT_BYTES" >> $GITHUB_OUTPUT
+
+      - name: Show Collected Context Size
+        run: |
+          echo "Context bytes output: ${{ steps.collect.outputs.bytes }}" >&2
+          if [ "${{ steps.collect.outputs.bytes }}" -lt 100 ]; then
+            echo "::warning::No code context collected!" >&2
+          fi
 
       - name: Build Prompt
         id: prompt
         run: |
           PROMPT_FILE=/tmp/prompt.txt
-          {
-            echo "You are an expert coding assistant. Provide fixes that can be applied directly."
-            echo "Repository: ${{ github.repository }}"
-            echo "Issue: #${{ github.event.issue.number }}"
-            echo ""
-            echo "USER REQUEST:"
-            echo "${{ github.event.comment.body }}"
-            echo ""
-          } > "$PROMPT_FILE"
+          > "$PROMPT_FILE"
+
+          echo "You are an expert software engineer. You HAVE ACCESS TO THE ACTUAL CODEBASE." >> "$PROMPT_FILE"
+          echo "Provide SPECIFIC fixes with exact file paths and line references." >> "$PROMPT_FILE"
+          echo "" >> "$PROMPT_FILE"
+          echo "FORMAT YOUR RESPONSE:" >> "$PROMPT_FILE"
+          echo "1. Summarize the bug in 2-3 sentences" >> "$PROMPT_FILE"
+          echo "2. Provide code blocks with FILE PATHS for each changed file" >> "$PROMPT_FILE"
+          echo '   ```javascript path/to/file.js' >> "$PROMPT_FILE"
+          echo "   // your code here" >> "$PROMPT_FILE"
+          echo '   ```' >> "$PROMPT_FILE"
+          echo "3. List all changed files under 'CHANGED FILES:'" >> "$PROMPT_FILE"
+          echo "" >> "$PROMPT_FILE"
+          echo "Repository: ${{ github.repository }}" >> "$PROMPT_FILE"
+          echo "Issue: #${{ github.event.issue.number }}" >> "$PROMPT_FILE"
+          echo "Title: ${{ github.event.issue.title }}" >> "$PROMPT_FILE"
+          echo "" >> "$PROMPT_FILE"
+          echo "USER REQUEST:" >> "$PROMPT_FILE"
+          echo "${{ github.event.comment.body }}" >> "$PROMPT_FILE"
+          echo "" >> "$PROMPT_FILE"
+
           CONTEXT_BYTES=${{ steps.collect.outputs.bytes }}
           if [ "$CONTEXT_BYTES" -gt 100 ]; then
-            echo "CODEBASE CONTEXT:" >> "$PROMPT_FILE"
+            echo "ACTUAL CODEBASE (read from your repository):" >> "$PROMPT_FILE"
             cat /tmp/code_context.txt >> "$PROMPT_FILE"
+          else
+            echo "⚠️ WARNING: No code context was collected from repository." >> "$PROMPT_FILE"
+            echo "Please paste the relevant code files so I can analyze them." >> "$PROMPT_FILE"
           fi
+
           echo "file=/tmp/prompt.txt" >> $GITHUB_OUTPUT
 
       - name: Call DeepSeek API
@@ -82,7 +159,7 @@ jobs:
           jq -n --arg prompt "$PROMPT_CONTENT" '{
             model: "deepseek-v4-pro",
             messages: [
-              {role: "system", content: "Expert coding assistant. Match Claude Sonnet 4.6 quality."},
+              {role: "system", content: "Expert coding assistant. Match Claude Sonnet 4.6 quality. You have access to actual code files."},
               {role: "user", content: $prompt}
             ],
             temperature: 0.2,
@@ -150,4 +227,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body "PR created: ${{ steps.pr.outputs.url }}"
+          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body "✨ PR created: ${{ steps.pr.outputs.url }}"
+
+      - name: Upload Debug Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-${{ github.event.issue.number }}
+          path: /tmp/debug_log.txt
+          retention-days: 7
