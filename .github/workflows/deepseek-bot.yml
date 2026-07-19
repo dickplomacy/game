@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install jq
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
@@ -56,16 +56,18 @@ jobs:
         id: prompt
         run: |
           PROMPT_FILE=/tmp/prompt.txt
-          printf '%s\n' "You are an expert coding assistant. Provide fixes that can be applied directly." > "$PROMPT_FILE"
-          printf '%s\n' "Repository: ${{ github.repository }}" >> "$PROMPT_FILE"
-          printf '%s\n' "Issue: #${{ github.event.issue.number }}" >> "$PROMPT_FILE"
-          printf '%s\n' "" >> "$PROMPT_FILE"
-          printf '%s\n' "USER REQUEST:" >> "$PROMPT_FILE"
-          printf '%s\n' "${{ github.event.comment.body }}" >> "$PROMPT_FILE"
-          printf '%s\n' "" >> "$PROMPT_FILE"
+          {
+            echo "You are an expert coding assistant. Provide fixes that can be applied directly."
+            echo "Repository: ${{ github.repository }}"
+            echo "Issue: #${{ github.event.issue.number }}"
+            echo ""
+            echo "USER REQUEST:"
+            echo "${{ github.event.comment.body }}"
+            echo ""
+          } > "$PROMPT_FILE"
           CONTEXT_BYTES=${{ steps.collect.outputs.bytes }}
           if [ "$CONTEXT_BYTES" -gt 100 ]; then
-            printf '%s\n' "CODEBASE CONTEXT:" >> "$PROMPT_FILE"
+            echo "CODEBASE CONTEXT:" >> "$PROMPT_FILE"
             cat /tmp/code_context.txt >> "$PROMPT_FILE"
           fi
           echo "file=/tmp/prompt.txt" >> $GITHUB_OUTPUT
@@ -76,12 +78,26 @@ jobs:
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           PROMPT_CONTENT=$(cat "${{ steps.prompt.outputs.file }}")
-          RESPONSE=$(curl -sS -X POST https://api.deepseek.com/v1/chat/completions -H "Authorization: Bearer $DEEPSEEK_KEY" -H "Content-Type: application/json" -d "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"system\",\"content\":\"Expert coding assistant.\"},{\"role\":\"user\",\"content\":\"${PROMPT_CONTENT}\"}],\"temperature\":0.2,\"max_tokens\":8000}")
+          REQUEST_FILE=/tmp/request.json
+          jq -n --arg prompt "$PROMPT_CONTENT" '{
+            model: "deepseek-v4-pro",
+            messages: [
+              {role: "system", content: "Expert coding assistant. Match Claude Sonnet 4.6 quality."},
+              {role: "user", content: $prompt}
+            ],
+            temperature: 0.2,
+            max_tokens: 8000
+          }' > "$REQUEST_FILE"
+          RESPONSE=$(curl -sS -X POST https://api.deepseek.com/v1/chat/completions \
+            -H "Authorization: Bearer $DEEPSEEK_KEY" \
+            -H "Content-Type: application/json" \
+            -d @"$REQUEST_FILE")
           CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
           if [ ${#CONTENT} -gt 100 ]; then
             echo "$CONTENT" > /tmp/response.txt
             echo "status=success" >> $GITHUB_OUTPUT
           else
+            echo "Invalid response: $(echo "$RESPONSE" | jq -r '.error.message // "unknown"')" >&2
             exit 1
           fi
 
