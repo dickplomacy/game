@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Parse DeepSeek response and apply code fixes."""
+
+import re
+import os
+
+def main():
+    response_path = '/tmp/response.txt'
+    changes_path = '/tmp/changed_files.txt'
+    
+    if not os.path.exists(response_path):
+        print(f"Error: {response_path} not found")
+        return
+    
+    with open(response_path, 'r') as f:
+        response = f.read()
+    
+    # Find code blocks with file paths
+    pattern = r'```\w*\s*(\S+\.[a-z]+)\n(.*?)```'
+    matches = re.findall(pattern, response, re.DOTALL)
+    
+    valid_changes = []
+    for filepath, content in matches:
+        filepath = filepath.strip().strip('/').lstrip('.')
+        
+        if '/' not in filepath or len(filepath) < 5:
+            continue
+        
+        try:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, 'w') as f:
+                f.write(content)
+            valid_changes.append(filepath)
+            print(f"Wrote: {filepath}")
+        except Exception as e:
+            print(f"Failed to write {filepath}: {e}")
+    
+    with open(changes_path, 'w') as f:
+        f.write('\n'.join(valid_changes))
+    
+    print(f"Total files written: {len(valid_changes)}")
+
+if __name__ == '__main__':
+    main()
