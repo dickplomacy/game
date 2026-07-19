@@ -6,297 +6,124 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  issues:
-    types: [opened, reopened]
-  pull_request_review:
-    types: [submitted]
 
 jobs:
   respond:
-    if: >
-      contains(github.event.comment.body, '@deepseek') ||
-      contains(github.event.issue.body, '@deepseek') ||
-      contains(github.event.review.body, '@deepseek')
-
+    if: contains(github.event.comment.body, '@deepseek') || contains(github.event.review.body, '@deepseek')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       issues: write
       pull-requests: write
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq bc
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Detect Event & Extract Data
+      - name: Extract Issue Data
         id: extract_data
         run: |
-          if [ "${{ github.event_name }}" == "issue_comment" ]; then
-            echo "item_type=issue" >> $GITHUB_OUTPUT
-            echo "item_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
-            echo "has_diff=false" >> $GITHUB_OUTPUT
-            echo "item_title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
-            echo "item_type=pr" >> $GITHUB_OUTPUT
-            echo "item_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
-            echo "has_diff=true" >> $GITHUB_OUTPUT
-            echo "item_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
-          else
-            echo "item_type=issue" >> $GITHUB_OUTPUT
-            echo "item_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
-            echo "has_diff=false" >> $GITHUB_OUTPUT
-            echo "item_title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
-          fi
+          echo "item_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+          echo "item_title=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
           echo "repo=${{ github.repository }}" >> $GITHUB_OUTPUT
 
-      - name: Collect Code Context (Smart Discovery)
-        id: collect_context
-        run: |
-          CONTEXT_FILE="/tmp/code_context.txt"
-          touch "$CONTEXT_FILE"
-          
-          if [ "${{ github.event_name }}" == "issue_comment" ]; then
-            REQUEST_CONTENT="${{ github.event.comment.body }}"
-          elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
-            REQUEST_CONTENT="${{ github.event.review.body }}"
-          else
-            REQUEST_CONTENT="${{ github.event.issue.body }}"
-          fi
-          
-          KEYWORDS=$(echo "$REQUEST_CONTENT" | tr '[:upper:]' '[:lower:]' | \
-            sed 's/@[a-zA-Z0-9_-]*//g' | \
-            sed 's/[^a-z0-9]/ /g' | \
-            tr -s ' ' | \
-            grep -oE '\b[a-z]{4,}\b' | sort -u | head -30)
-          
-          echo "Extracted keywords: $KEYWORDS" >&2
-          
-          if [ "${{ steps.extract_data.outputs.has_diff }}" == "true" ]; then
-            FILES=$(gh api repos/${{ github.repository }}/pulls/${{ steps.extract_data.outputs.item_number }}/files --jq '.[].filename' 2>/dev/null || echo "")
-            if [ -n "$FILES" ]; then
-              echo "=== MODIFIED FILES FROM PR ===" >> "$CONTEXT_FILE"
-              for FILE in $FILES; do
-                if [ -f "$FILE" ]; then
-                  echo "--- $FILE ---" >> "$CONTEXT_FILE"
-                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
-                  echo "" >> "$CONTEXT_FILE"
-                fi
-              done
-            fi
-          fi
-          
-          echo "=== INTELLIGENT FILE DISCOVERY ===" >> "$CONTEXT_FILE"
-          
-          CANDIDATES_FILE="/tmp/file_candidates.txt"
-          > "$CANDIDATES_FILE"
-          
-          CODE_FILES=$(find . -type f \( \
-            -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.tsx" -o \
-            -name "*.jsx" -o -name "*.java" -o -name "*.go" -o -name "*.rb" -o \
-            -name "*.rs" -o -name "*.php" -o -name "*.c" -o -name "*.cpp" -o \
-            -name "*.h" -o -name "*.hpp" -o -name "*.swift" -o -name "*.kt" -o \
-            -name "*.cs" \
-          \) ! -path "./.git/*" ! -path "./node_modules/*" ! -path "./vendor/*" 2>/dev/null)
-          
-          echo "Found $(echo "$CODE_FILES" | wc -l) code files to analyze" >&2
-          
-          for FILE in $CODE_FILES; do
-            if [ -f "$FILE" ] && [ $(wc -c < "$FILE") -lt 100000 ]; then
-              SCORE=0
-              FILE_CONTENT=$(head -500 "$FILE" 2>/dev/null | tr '[:upper:]' '[:lower:]')
-              
-              for KW in $KEYWORDS; do
-                if echo "$FILE" | grep -qi "$KW"; then
-                  SCORE=$((SCORE + 5))
-                fi
-                MATCHES=$(echo "$FILE_CONTENT" | grep -oi "$KW" 2>/dev/null | wc -l)
-                SCORE=$((SCORE + MATCHES))
-              done
-              
-              if [ "$SCORE" -gt 2 ]; then
-                echo "$SCORE|$FILE" >> "$CANDIDATES_FILE"
-              fi
-            fi
-          done
-          
-          TOP_FILES=$(sort -t'|' -k1 -rn "$CANDIDATES_FILE" | head -30 | cut -d'|' -f2-)
-          
-          for FILE in $TOP_FILES; do
-            if [ -f "$FILE" ] && [ $(wc -c < "$FILE") -lt 100000 ]; then
-              FILE_SIZE=$(wc -c < "$FILE")
-              if [ "$FILE_SIZE" -lt 20000 ]; then
-                echo "--- FULL FILE: $FILE ($FILE_SIZE bytes) ---" >> "$CONTEXT_FILE"
-                cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
-              else
-                echo "--- TRUNCATED FILE: $FILE ($FILE_SIZE bytes, showing first 400 lines) ---" >> "$CONTEXT_FILE"
-                head -400 "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
-              fi
-              echo "" >> "$CONTEXT_FILE"
-            fi
-          done
-          
-          if [ -f ".deepseek-files" ]; then
-            echo "=== PRIORITY FILES (.deepseek-files) ===" >> "$CONTEXT_FILE"
-            while IFS= read -r FILE; do
-              [[ -z "$FILE" || "$FILE" =~ ^# ]] && continue
-              if [ -f "$FILE" ]; then
-                FILE_SIZE=$(wc -c < "$FILE")
-                if [ "$FILE_SIZE" -lt 50000 ]; then
-                  echo "--- $FILE ---" >> "$CONTEXT_FILE"
-                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
-                  echo "" >> "$CONTEXT_FILE"
-                fi
-              fi
-            done < ".deepseek-files"
-          fi
-          
-          awk '!seen[$0]++' "$CONTEXT_FILE" > /tmp/context_dedup.txt
-          mv /tmp/context_dedup.txt "$CONTEXT_FILE"
-          
-          MAX_BYTES=200000
-          CURRENT_BYTES=$(stat -c%s "$CONTEXT_FILE" 2>/dev/null || echo "0")
-          if [ "$CURRENT_BYTES" -gt "$MAX_BYTES" ]; then
-            tail -c "$MAX_BYTES" "$CONTEXT_FILE" > /tmp/context_truncated.txt
-            mv /tmp/context_truncated.txt "$CONTEXT_FILE"
-          fi
-          
-          CONTEXT_BYTES=$(stat -c%s "$CONTEXT_FILE" 2>/dev/null || echo "0")
-          echo "context_bytes=$CONTEXT_BYTES" >> $GITHUB_OUTPUT
-          echo "files_analyzed=$(echo "$CODE_FILES" | grep -c . || echo "0")" >> $GITHUB_OUTPUT
-          echo "keywords_found=$(echo "$KEYWORDS" | wc -w)" >> $GITHUB_OUTPUT
-
-      - name: Extract User Request
-        id: extract_request
-        run: |
-          if [ "${{ github.event_name }}" == "issue_comment" ]; then
-            RAW="${{ github.event.comment.body }}"
-          elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
-            RAW="${{ github.event.review.body }}"
-          else
-            RAW="${{ github.event.issue.body }}"
-          fi
-          REQUEST=$(echo "$RAW" | sed -n 's/.*@deepseek\s*//IP' | head -1)
-          if [ -z "$REQUEST" ]; then
-            REQUEST="$RAW"
-          fi
-          echo "$REQUEST" > /tmp/request.txt
-          REQUEST_LEN=$(wc -c < /tmp/request.txt)
-          echo "request_length=$REQUEST_LEN" >> $GITHUB_OUTPUT
-
-      - name: Build Complete Prompt
-        id: build_prompt
-        run: |
-          PROMPT_FILE="/tmp/prompt.txt"
-          printf '%s\n' \
-            "You are a senior software engineer providing expert coding assistance. Your quality should match or exceed Claude Sonnet 4.6. You have access to the actual codebase and will analyze specific files." \
-            "" \
-            "OUTPUT REQUIREMENTS:" \
-            "- Be specific and actionable—avoid vague advice" \
-            "- Include complete, working code blocks with language syntax" \
-            "- Reference specific files and line numbers when applicable" \
-            "- Use Markdown for formatting" \
-            "- Structure: Summary → Analysis → Solution → Verification Steps" \
-            "- Flag potential breaking changes" \
-            "- Keep responses concise but thorough" \
-            "" \
-            "Repository: ${{ steps.extract_data.outputs.repo }}" \
-            "Issue: #${{ steps.extract_data.outputs.item_number }}" \
-            "Title: ${{ steps.extract_data.outputs.item_title }}" \
-            "" \
-            "USER REQUEST:" > "$PROMPT_FILE"
-          cat /tmp/request.txt >> "$PROMPT_FILE"
-          echo "" >> "$PROMPT_FILE"
-          if [ "${{ steps.collect_context.outputs.context_bytes }}" -gt 100 ]; then
-            echo "CODEBASE CONTEXT (automatically discovered relevant files):" >> "$PROMPT_FILE"
-            cat /tmp/code_context.txt >> "$PROMPT_FILE"
-          else
-            echo "No relevant code files found in repository. Please provide a code snippet or more context." >> "$PROMPT_FILE"
-          fi
-          echo "prompt_file=$PROMPT_FILE" >> $GITHUB_OUTPUT
-
       - name: Call DeepSeek API
-        id: ai_call
+        id: api_call
         env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          set -euo pipefail
-          if [ -z "${DEEPSEEK_API_KEY}" ]; then
-            echo "::error::DEEPSEEK_API_KEY not set"
-            exit 1
-          fi
-          API_URL="https://api.deepseek.com/v1/chat/completions"
-          MAX_RETRIES=3
-          SUCCESS=false
-          for attempt in 1 2 3; do
-            echo "API call attempt $attempt/$MAX_RETRIES" >&2
-            REQUEST_FILE="/tmp/request_body.json"
-            printf '{"model":"deepseek-v4-pro","temperature":0.2,"max_tokens":8000}' > "$REQUEST_FILE"
-            PROMPT_CONTENT=$(cat "${{ steps.build_prompt.outputs.prompt_file }}")
-            jq --arg content "$PROMPT_CONTENT" \
-               '.messages = [{"role":"system","content":"Expert coding assistant matching Claude Sonnet 4.6 quality. You have access to the actual codebase and will provide specific file-based solutions."},{"role":"user","content":$content}]' \
-               "$REQUEST_FILE" > /tmp/request_body_full.json
-            RESPONSE_FILE="/tmp/response.json"
-            curl -sS --connect-timeout 30 --max-time 300 \
-              -X POST "$API_URL" \
-              -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
-              -H "Content-Type: application/json" \
-              -H "User-Agent: GitHub-Actions-DeepSeek-Bot/v1" \
-              -d @/tmp/request_body_full.json \
-              -o "$RESPONSE_FILE"
-            if jq -e '.choices[0].message.content != null' "$RESPONSE_FILE" >/dev/null 2>&1; then
-              CONTENT=$(jq -r '.choices[0].message.content' "$RESPONSE_FILE")
-              CONTENT_LEN=${#CONTENT}
-              if [ "$CONTENT_LEN" -gt 100 ]; then
-                echo "Valid response received ($CONTENT_LEN characters)" >&2
-                echo "$CONTENT" > /tmp/response.txt
-                INPUT_TOKENS=$(jq -r '.usage.prompt_tokens // 0' "$RESPONSE_FILE")
-                OUTPUT_TOKENS=$(jq -r '.usage.completion_tokens // 0' "$RESPONSE_FILE")
-                echo "input_tokens=$INPUT_TOKENS" >> $GITHUB_OUTPUT
-                echo "output_tokens=$OUTPUT_TOKENS" >> $GITHUB_OUTPUT
-                SUCCESS=true
-                break
-              else
-                echo "Response too short ($CONTENT_LEN characters), retrying..." >&2
-              fi
-            else
-              ERROR_MSG=$(jq -r '.error.message // "Unknown error"' "$RESPONSE_FILE" 2>/dev/null || echo "Invalid response format")
-              echo "API error: $ERROR_MSG" >&2
-            fi
-            if [ $attempt -eq $MAX_RETRIES ]; then
-              echo "::error::All $MAX_RETRIES API attempts failed"
-              exit 1
-            fi
-            sleep 2
-          done
-          if [ "$SUCCESS" = false ]; then
-            echo "::error::Failed to get valid response from DeepSeek"
+          RESPONSE=$(curl -sS \
+            -X POST https://api.deepseek.com/v1/chat/completions \
+            -H "Authorization: Bearer $DEEPSEEK_KEY" \
+            -H "Content-Type: application/json" \
+            -d "{\"model\":\"deepseek-v4-pro\",\"messages\":[{\"role\":\"system\",\"content\":\"Expert coding assistant. Match Claude Sonnet 4.6 quality.\"},{\"role\":\"user\",\"content\":\"${{ github.event.comment.body }}\"}],\"temperature\":0.2,\"max_tokens\":8000}")
+          
+          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          
+          if [ ${#CONTENT} -gt 100 ]; then
+            echo "$CONTENT" > /tmp/response.txt
+            echo "success=true" >> $GITHUB_OUTPUT
+            echo "tokens=$(echo "$RESPONSE" | jq -r '.usage.total_tokens // 0')" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Invalid response"
             exit 1
           fi
 
-      - name: Post Response to GitHub Issue/PR
+      - name: Post Comment
+        if: steps.api_call.outputs.success == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment \
-            "${{ steps.extract_data.outputs.item_number }}" \
-            --repo "${{ steps.extract_data.outputs.repo }}" \
-            --body-file "/tmp/response.txt"
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body-file /tmp/response.txt
 
-      - name: Execution Summary
+      - name: Parse and Apply Fixes
+        id: apply_fixes
+        if: steps.api_call.outputs.success == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "===== DEEPSEEK BOT COMPLETE =====" >&2
-          echo "Repository: ${{ steps.extract_data.outputs.repo }}" >&2
-          echo "Item: #${{ steps.extract_data.outputs.item_number }}" >&2
-          echo "Context bytes: ${{ steps.collect_context.outputs.context_bytes }}" >&2
-          echo "Files analyzed: ${{ steps.collect_context.outputs.files_analyzed }}" >&2
-          echo "Keywords found: ${{ steps.collect_context.outputs.keywords_found }}" >&2
-          echo "Input tokens: ${{ steps.ai_call.outputs.input_tokens }}" >&2
-          echo "Output tokens: ${{ steps.ai_call.outputs.output_tokens }}" >&2
-          echo "=================================" >&2
+          BRANCH="deepseek-fix-${{ github.event.issue.number }}-$(date +%s)"
+          python3 -c "
+import re, os
+response = open('/tmp/response.txt').read()
+pattern = r'\`\`\`\w*\s*(\S+\.[a-z]+)\n(.*?)\`\`\`'
+files = re.findall(pattern, response, re.DOTALL)
+valid = [(f,c) for f,c in files if '/' in f and len(f)>5]
+open('/tmp/changes.txt','w').write('\n'.join([f for f,_ in valid]))
+print(len(valid))
+"
+          
+          if [ -s /tmp/changes.txt ]; then
+            echo "auto_apply=true" >> $GITHUB_OUTPUT
+            
+            git config user.email "bot@actions.github.com"
+            git config user.name "DeepSeek Bot"
+            git checkout -b "$BRANCH"
+            
+            python3 -c "
+import re, os
+response = open('/tmp/response.txt').read()
+pattern = r'\`\`\`\w*\s*(\S+\.[a-z]+)\n(.*?)\`\`\`'
+for filepath, content in re.findall(pattern, response, re.DOTALL):
+    if '/' in filepath and len(filepath)>5:
+        try:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            open(filepath,'w').write(content)
+            os.system(f'git add \"{filepath}\"')
+        except: pass
+"
+            
+            if git diff --cached --quiet; then
+              echo "no_changes=true" >> $GITHUB_OUTPUT
+            else
+              git commit -m "Auto-fix from @deepseek"
+              git push -u origin "$BRANCH"
+              echo "branch_name=$BRANCH" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Create PR
+        if: steps.apply_fixes.outputs.auto_apply == 'true' && steps.apply_fixes.outputs.no_changes != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR=$(gh pr create \
+            --title "[DeepSeek] Fix #${{ github.event.issue.number }}" \
+            --body "Auto-generated by @deepseek bot" \
+            --base ${{ github.event.repository.default_branch }} \
+            --head ${{ steps.apply_fixes.outputs.branch_name }})
+          echo "pr_url=$PR" >> $GITHUB_OUTPUT
+
+      - name: Final Comment
+        if: steps.create_pr.outputs.pr_url != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --body "✨ PR created: ${{ steps.create_pr.outputs.pr_url }}"
