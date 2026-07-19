@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Dependencies
         run: |
@@ -54,23 +56,121 @@ jobs:
           fi
           echo "repo=${{ github.repository }}" >> $GITHUB_OUTPUT
 
-      - name: Collect Code Context
+      - name: Collect Code Context (Smart Discovery)
         id: collect_context
         run: |
           CONTEXT_FILE="/tmp/code_context.txt"
           touch "$CONTEXT_FILE"
+          
+          if [ "${{ github.event_name }}" == "issue_comment" ]; then
+            REQUEST_CONTENT="${{ github.event.comment.body }}"
+          elif [ "${{ github.event_name }}" == "pull_request_review" ]; then
+            REQUEST_CONTENT="${{ github.event.review.body }}"
+          else
+            REQUEST_CONTENT="${{ github.event.issue.body }}"
+          fi
+          
+          KEYWORDS=$(echo "$REQUEST_CONTENT" | tr '[:upper:]' '[:lower:]' | \
+            sed 's/@[a-zA-Z0-9_-]*//g' | \
+            sed 's/[^a-z0-9]/ /g' | \
+            tr -s ' ' | \
+            grep -oE '\b[a-z]{4,}\b' | sort -u | head -30)
+          
+          echo "Extracted keywords: $KEYWORDS" >&2
+          
           if [ "${{ steps.extract_data.outputs.has_diff }}" == "true" ]; then
             FILES=$(gh api repos/${{ github.repository }}/pulls/${{ steps.extract_data.outputs.item_number }}/files --jq '.[].filename' 2>/dev/null || echo "")
-            for FILE in $FILES; do
-              if [ -f "$FILE" ]; then
-                echo "=== FILE: $FILE ===" >> "$CONTEXT_FILE"
-                head -300 "$FILE" 2>/dev/null >> "$CONTEXT_FILE" || true
-                echo "" >> "$CONTEXT_FILE"
-              fi
-            done
+            if [ -n "$FILES" ]; then
+              echo "=== MODIFIED FILES FROM PR ===" >> "$CONTEXT_FILE"
+              for FILE in $FILES; do
+                if [ -f "$FILE" ]; then
+                  echo "--- $FILE ---" >> "$CONTEXT_FILE"
+                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                  echo "" >> "$CONTEXT_FILE"
+                fi
+              done
+            fi
           fi
+          
+          echo "=== INTELLIGENT FILE DISCOVERY ===" >> "$CONTEXT_FILE"
+          
+          CANDIDATES_FILE="/tmp/file_candidates.txt"
+          > "$CANDIDATES_FILE"
+          
+          CODE_FILES=$(find . -type f \( \
+            -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.tsx" -o \
+            -name "*.jsx" -o -name "*.java" -o -name "*.go" -o -name "*.rb" -o \
+            -name "*.rs" -o -name "*.php" -o -name "*.c" -o -name "*.cpp" -o \
+            -name "*.h" -o -name "*.hpp" -o -name "*.swift" -o -name "*.kt" -o \
+            -name "*.cs" \
+          \) ! -path "./.git/*" ! -path "./node_modules/*" ! -path "./vendor/*" 2>/dev/null)
+          
+          echo "Found $(echo "$CODE_FILES" | wc -l) code files to analyze" >&2
+          
+          for FILE in $CODE_FILES; do
+            if [ -f "$FILE" ] && [ $(wc -c < "$FILE") -lt 100000 ]; then
+              SCORE=0
+              FILE_CONTENT=$(head -500 "$FILE" 2>/dev/null | tr '[:upper:]' '[:lower:]')
+              
+              for KW in $KEYWORDS; do
+                if echo "$FILE" | grep -qi "$KW"; then
+                  SCORE=$((SCORE + 5))
+                fi
+                MATCHES=$(echo "$FILE_CONTENT" | grep -oi "$KW" 2>/dev/null | wc -l)
+                SCORE=$((SCORE + MATCHES))
+              done
+              
+              if [ "$SCORE" -gt 2 ]; then
+                echo "$SCORE|$FILE" >> "$CANDIDATES_FILE"
+              fi
+            fi
+          done
+          
+          TOP_FILES=$(sort -t'|' -k1 -rn "$CANDIDATES_FILE" | head -30 | cut -d'|' -f2-)
+          
+          for FILE in $TOP_FILES; do
+            if [ -f "$FILE" ] && [ $(wc -c < "$FILE") -lt 100000 ]; then
+              FILE_SIZE=$(wc -c < "$FILE")
+              if [ "$FILE_SIZE" -lt 20000 ]; then
+                echo "--- FULL FILE: $FILE ($FILE_SIZE bytes) ---" >> "$CONTEXT_FILE"
+                cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+              else
+                echo "--- TRUNCATED FILE: $FILE ($FILE_SIZE bytes, showing first 400 lines) ---" >> "$CONTEXT_FILE"
+                head -400 "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+              fi
+              echo "" >> "$CONTEXT_FILE"
+            fi
+          done
+          
+          if [ -f ".deepseek-files" ]; then
+            echo "=== PRIORITY FILES (.deepseek-files) ===" >> "$CONTEXT_FILE"
+            while IFS= read -r FILE; do
+              [[ -z "$FILE" || "$FILE" =~ ^# ]] && continue
+              if [ -f "$FILE" ]; then
+                FILE_SIZE=$(wc -c < "$FILE")
+                if [ "$FILE_SIZE" -lt 50000 ]; then
+                  echo "--- $FILE ---" >> "$CONTEXT_FILE"
+                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                  echo "" >> "$CONTEXT_FILE"
+                fi
+              fi
+            done < ".deepseek-files"
+          fi
+          
+          awk '!seen[$0]++' "$CONTEXT_FILE" > /tmp/context_dedup.txt
+          mv /tmp/context_dedup.txt "$CONTEXT_FILE"
+          
+          MAX_BYTES=200000
+          CURRENT_BYTES=$(stat -c%s "$CONTEXT_FILE" 2>/dev/null || echo "0")
+          if [ "$CURRENT_BYTES" -gt "$MAX_BYTES" ]; then
+            tail -c "$MAX_BYTES" "$CONTEXT_FILE" > /tmp/context_truncated.txt
+            mv /tmp/context_truncated.txt "$CONTEXT_FILE"
+          fi
+          
           CONTEXT_BYTES=$(stat -c%s "$CONTEXT_FILE" 2>/dev/null || echo "0")
           echo "context_bytes=$CONTEXT_BYTES" >> $GITHUB_OUTPUT
+          echo "files_analyzed=$(echo "$CODE_FILES" | grep -c . || echo "0")" >> $GITHUB_OUTPUT
+          echo "keywords_found=$(echo "$KEYWORDS" | wc -w)" >> $GITHUB_OUTPUT
 
       - name: Extract User Request
         id: extract_request
@@ -95,7 +195,7 @@ jobs:
         run: |
           PROMPT_FILE="/tmp/prompt.txt"
           printf '%s\n' \
-            "You are a senior software engineer providing expert coding assistance. Your quality should match or exceed Claude Sonnet 4.6." \
+            "You are a senior software engineer providing expert coding assistance. Your quality should match or exceed Claude Sonnet 4.6. You have access to the actual codebase and will analyze specific files." \
             "" \
             "OUTPUT REQUIREMENTS:" \
             "- Be specific and actionable—avoid vague advice" \
@@ -114,8 +214,10 @@ jobs:
           cat /tmp/request.txt >> "$PROMPT_FILE"
           echo "" >> "$PROMPT_FILE"
           if [ "${{ steps.collect_context.outputs.context_bytes }}" -gt 100 ]; then
-            echo "RELEVANT CODE (first 300 lines of modified files):" >> "$PROMPT_FILE"
+            echo "CODEBASE CONTEXT (automatically discovered relevant files):" >> "$PROMPT_FILE"
             cat /tmp/code_context.txt >> "$PROMPT_FILE"
+          else
+            echo "No relevant code files found in repository. Please provide a code snippet or more context." >> "$PROMPT_FILE"
           fi
           echo "prompt_file=$PROMPT_FILE" >> $GITHUB_OUTPUT
 
@@ -138,7 +240,7 @@ jobs:
             printf '{"model":"deepseek-v4-pro","temperature":0.2,"max_tokens":8000}' > "$REQUEST_FILE"
             PROMPT_CONTENT=$(cat "${{ steps.build_prompt.outputs.prompt_file }}")
             jq --arg content "$PROMPT_CONTENT" \
-               '.messages = [{"role":"system","content":"Expert coding assistant matching Claude Sonnet 4.6 quality"},{"role":"user","content":$content}]' \
+               '.messages = [{"role":"system","content":"Expert coding assistant matching Claude Sonnet 4.6 quality. You have access to the actual codebase and will provide specific file-based solutions."},{"role":"user","content":$content}]' \
                "$REQUEST_FILE" > /tmp/request_body_full.json
             RESPONSE_FILE="/tmp/response.json"
             curl -sS --connect-timeout 30 --max-time 300 \
@@ -193,6 +295,8 @@ jobs:
           echo "Repository: ${{ steps.extract_data.outputs.repo }}" >&2
           echo "Item: #${{ steps.extract_data.outputs.item_number }}" >&2
           echo "Context bytes: ${{ steps.collect_context.outputs.context_bytes }}" >&2
+          echo "Files analyzed: ${{ steps.collect_context.outputs.files_analyzed }}" >&2
+          echo "Keywords found: ${{ steps.collect_context.outputs.keywords_found }}" >&2
           echo "Input tokens: ${{ steps.ai_call.outputs.input_tokens }}" >&2
           echo "Output tokens: ${{ steps.ai_call.outputs.output_tokens }}" >&2
           echo "=================================" >&2
