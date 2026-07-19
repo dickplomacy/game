@@ -201,7 +201,7 @@ jobs:
         if: steps.api.outputs.status == 'success'
         id: fixes
         run: |
-          python3 .github/scripts/apply_fixes.py
+          python3 .github/actions/apply_fixes.py
           if [ -s /tmp/changed.txt ]; then
             while IFS= read -r FILE; do
               [ -n "$FILE" ] && git add "$FILE"
