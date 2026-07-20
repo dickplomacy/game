@@ -954,10 +954,10 @@ jobs:
           ISSUE_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-          # Build file list safely
+          # Build file list safely - use -- to prevent option interpretation
           FILES_LIST=""
           if [ -f /tmp/files_to_commit.txt ] && [ -s /tmp/files_to_commit.txt ]; then
-            FILES_LIST=$(cat /tmp/files_to_commit.txt | head -20 | while read -r f; do printf "  - %s\n" "$f"; done | head -c 500)
+            FILES_LIST=$(cat /tmp/files_to_commit.txt | head -20 | while IFS= read -r f; do printf -- '  - %s\n' "$f"; done | head -c 500)
           fi
 
           if [ -z "$FILES_LIST" ]; then
@@ -977,11 +977,11 @@ jobs:
           printf '%s\n' "${FILES_LIST}" >> /tmp/pr_body.txt
           printf '\n' >> /tmp/pr_body.txt
           printf 'REVIEW CHECKLIST:\n' >> /tmp/pr_body.txt
-          printf '- Verify fix addresses original issue\n' >> /tmp/pr_body.txt
-          printf '- Confirm no unintended side effects\n' >> /tmp/pr_body.txt
-          printf '- Run tests locally if applicable\n' >> /tmp/pr_body.txt
-          printf '- Update documentation if API contracts changed\n' >> /tmp/pr_body.txt
-          printf '- Check build passes\n' >> /tmp/pr_body.txt
+          printf '%s\n' '- Verify fix addresses original issue' >> /tmp/pr_body.txt
+          printf '%s\n' '- Confirm no unintended side effects' >> /tmp/pr_body.txt
+          printf '%s\n' '- Run tests locally if applicable' >> /tmp/pr_body.txt
+          printf '%s\n' '- Update documentation if API contracts changed' >> /tmp/pr_body.txt
+          printf '%s\n' '- Check build passes' >> /tmp/pr_body.txt
           printf '\n' >> /tmp/pr_body.txt
           printf 'NOTE: This is an automated PR. Please review carefully before merging.\n' >> /tmp/pr_body.txt
           printf '\n' >> /tmp/pr_body.txt
@@ -1010,8 +1010,8 @@ jobs:
             printf 'Files changed:\n' >> /tmp/notify_msg.txt
             
             if [ -f /tmp/files_to_commit.txt ] && [ -s /tmp/files_to_commit.txt ]; then
-              cat /tmp/files_to_commit.txt | head -10 | while read -r f; do
-                printf '  - %s\n' "$f" >> /tmp/notify_msg.txt
+              cat /tmp/files_to_commit.txt | head -10 | while IFS= read -r f; do
+                printf -- '  - %s\n' "$f" >> /tmp/notify_msg.txt
               done
             else
               printf '  - (none)\n' >> /tmp/notify_msg.txt
