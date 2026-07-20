@@ -39,7 +39,6 @@ jobs:
           > "$CONTEXT_FILE"
           > "$DEBUG_FILE"
 
-          # Extract keywords from comment
           COMMENT="${{ github.event.comment.body }}"
           echo "Original comment: $COMMENT" >> "$DEBUG_FILE"
 
@@ -51,30 +50,26 @@ jobs:
 
           echo "Extracted keywords: $KEYWORDS" >> "$DEBUG_FILE"
 
-          # Find ALL code files (be aggressive)
           CODE_FILES=$(find . -type f \( \
             -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \
             -o -name "*.py" -o -name "*.java" -o -name "*.go" -o -name "*.rb" \
             -o -name "*.php" -o -name "*.c" -o -name "*.cpp" -o -name "*.h" \
             \) ! -path "./.git/*" ! -path "./node_modules/*" ! -path "./vendor/*" 2>/dev/null)
 
-          echo "Found ${CODE_FILES}" | wc -l | xargs -I {} echo "Total code files found: {}" >> "$DEBUG_FILE"
+          echo "Total code files found: $(echo "$CODE_FILES" | wc -l)" >> "$DEBUG_FILE"
           echo "All code files:" >> "$DEBUG_FILE"
           echo "$CODE_FILES" >> "$DEBUG_FILE"
 
-          # Score each file by keyword matches
           for FILE in $CODE_FILES; do
             if [ -f "$FILE" ]; then
               SCORE=0
 
-              # Check if keyword appears in filename
               for KW in $KEYWORDS; do
                 if echo "$FILE" | grep -qi "$KW"; then
                   SCORE=$((SCORE + 10))
                   echo "Matched keyword '$KW' in filename: $FILE" >> "$DEBUG_FILE"
                 fi
 
-                # Check file content (first 300 lines)
                 CONTENT_SAMPLE=$(head -300 "$FILE" 2>/dev/null | tr '[:upper:]' '[:lower:]')
                 MATCHES=$(echo "$CONTENT_SAMPLE" | grep -oi "$KW" 2>/dev/null | wc -l)
                 if [ "$MATCHES" -gt 0 ]; then
@@ -84,7 +79,6 @@ jobs:
 
               echo "File: $FILE, Score: $SCORE" >> "$DEBUG_FILE"
 
-              # Include files with score > 0
               if [ "$SCORE" -gt 0 ]; then
                 FILE_SIZE=$(wc -c < "$FILE" 2>/dev/null || echo 0)
                 if [ "$FILE_SIZE" -lt 50000 ]; then
@@ -143,7 +137,7 @@ jobs:
             echo "ACTUAL CODEBASE (read from your repository):" >> "$PROMPT_FILE"
             cat /tmp/code_context.txt >> "$PROMPT_FILE"
           else
-            echo "⚠️ WARNING: No code context was collected from repository." >> "$PROMPT_FILE"
+            echo "WARNING: No code context was collected from repository." >> "$PROMPT_FILE"
             echo "Please paste the relevant code files so I can analyze them." >> "$PROMPT_FILE"
           fi
 
@@ -201,7 +195,39 @@ jobs:
         if: steps.api.outputs.status == 'success'
         id: fixes
         run: |
-          python3 .github/actions/apply_fixes.py
+          > /tmp/changed.txt
+
+          awk '
+          BEGIN { inblock = 0; outfile = "" }
+          /^```/ {
+            if (inblock) {
+              close(outfile)
+              inblock = 0
+              outfile = ""
+            } else {
+              inblock = 1
+              line = $0
+              gsub(/^```[a-zA-Z]*[[:space:]]*/, "", line)
+              gsub(/[[:space:]]*```$/, "", line)
+              gsub(/[[:cntrl:]]/, "", line)
+              filepath = line
+
+              if (index(filepath, "/") > 0 && match(filepath, /[a-z]+\.[a-z]+$/)) {
+                cmd = "mkdir -p $(dirname \"" filepath "\") 2>/dev/null"
+                system(cmd)
+                outfile = filepath
+                print filepath >> "/tmp/changed.txt"
+              } else {
+                outfile = "/dev/null"
+              }
+            }
+            next
+          }
+          inblock && outfile != "/dev/null" {
+            print >> outfile
+          }
+          ' /tmp/response.txt
+
           if [ -s /tmp/changed.txt ]; then
             while IFS= read -r FILE; do
               [ -n "$FILE" ] && git add "$FILE"
