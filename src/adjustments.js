@@ -88,3 +88,8 @@ export function lastOccupiedFromUnits(prevLastOccupied, newUnits) {
   });
   return next;
 }
+import winCondition from './winCondition.js';    // ← whole module import
+const { POWERS, SC_IDS } = winCondition;          // ← destructure
+
+export const HOME_SCS = {
+  // … rest unchanged
