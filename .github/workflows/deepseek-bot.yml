@@ -449,18 +449,34 @@ jobs:
           Begin your detailed analysis now.
           PROMPT_EOF
 
-          # Replace placeholders using temp files to avoid sed conflicts
-          echo "${METRICS_JSON}" > /tmp/metrics_temp.txt
-          sed 's/[&/\]/\\&/g' /tmp/metrics_temp.txt > /tmp/metrics_escaped.txt || true
-          sed -i "s|{{METRICS_JSON}}|$(cat /tmp/metrics_escaped.txt)|g" /tmp/analysis_prompt.txt
+          # Replace placeholders using Python to avoid sed escaping issues
+          python3 << 'PYEOF'
+          import json
+          import os
 
-          sed -i "s|{{REPO}}|${{ github.repository }}|g" /tmp/analysis_prompt.txt
-          sed -i "s|{{ISSUE_NUM}}|${{ github.event.issue.number || github.event.pull_request.number }}|g" /tmp/analysis_prompt.txt
-          sed -i "s|{{EVENT_TYPE}}|${{ github.event_name }}|g" /tmp/analysis_prompt.txt
+          with open('/tmp/analysis_prompt.txt', 'r') as f:
+              content = f.read()
 
-          # Escape REQUEST safely
-          REQUEST_ESCAPED=$(cat /tmp/original_request.txt | sed 's/[&/\]/\\&/g' | tr -d '\n')
-          sed -i "s|{{REQUEST}}|${REQUEST_ESCAPED}|g" /tmp/analysis_prompt.txt
+          metrics = open('/tmp/context_metrics.json', 'r').read().strip() if os.path.exists('/tmp/context_metrics.json') else ''
+          request = open('/tmp/original_request.txt', 'r').read().strip() if os.path.exists('/tmp/original_request.txt') else ''
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          issue_num = os.environ.get('ISSUE_NUM', '')
+          event_type = os.environ.get('EVENT_TYPE', '')
+
+          replacements = {
+              '{{METRICS_JSON}}': metrics,
+              '{{REPO}}': repo,
+              '{{ISSUE_NUM}}': issue_num,
+              '{{EVENT_TYPE}}': event_type,
+              '{{REQUEST}}': request,
+          }
+
+          for placeholder, value in replacements.items():
+              content = content.replace(placeholder, value)
+
+          with open('/tmp/analysis_prompt.txt', 'w') as f:
+              f.write(content)
+          PYEOF
 
           echo "✓ Analysis prompt built ($(wc -c < /tmp/analysis_prompt.txt) bytes)"
           echo "prompt_size=$(wc -c < /tmp/analysis_prompt.txt)" >> $GITHUB_OUTPUT
@@ -556,13 +572,27 @@ jobs:
           ================================================
           PROMPT_EOF
 
-          # Replace placeholders using temp files
-          echo "${ANALYSIS_RESULT}" > /tmp/analysis_temp.txt
-          ESCAPED_ANALYSIS=$(cat /tmp/analysis_temp.txt | sed 's/[&/\]/\\&/g' | tr -d '\n')
-          sed -i "s|{{ANALYSIS_RESULT}}|${ESCAPED_ANALYSIS}|g" /tmp/impl_prompt.txt
+          # Replace placeholders using Python
+          python3 << 'PYEOF'
+          import os
 
-          REQUEST_ESCAPED=$(cat /tmp/original_request.txt | sed 's/[&/\]/\\&/g' | tr -d '\n')
-          sed -i "s|{{REQUEST}}|${REQUEST_ESCAPED}|g" /tmp/impl_prompt.txt
+          with open('/tmp/impl_prompt.txt', 'r') as f:
+              content = f.read()
+
+          analysis = open('/tmp/analysis_response.txt', 'r').read().strip() if os.path.exists('/tmp/analysis_response.txt') else ''
+          request = open('/tmp/original_request.txt', 'r').read().strip() if os.path.exists('/tmp/original_request.txt') else ''
+
+          replacements = {
+              '{{ANALYSIS_RESULT}}': analysis,
+              '{{REQUEST}}': request,
+          }
+
+          for placeholder, value in replacements.items():
+              content = content.replace(placeholder, value)
+
+          with open('/tmp/impl_prompt.txt', 'w') as f:
+              f.write(content)
+          PYEOF
 
           echo "✓ Implementation prompt built ($(wc -c < /tmp/impl_prompt.txt) bytes)"
           echo "prompt_size=$(wc -c < /tmp/impl_prompt.txt)" >> $GITHUB_OUTPUT
@@ -874,7 +904,7 @@ jobs:
 
               ISSUE_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
 
-              # FIX: Use sed instead of tr to avoid range-order errors
+              # Use sed instead of tr to avoid range-order errors
               FILES_LIST=$(cat /tmp/files_to_commit.txt | head -5 | sed ':a;N;$!ba;s/\n/, /g' | head -c 200)
               git commit -m "[DeepSeek] Fix #${ISSUE_NUM} Automated fix: Analysis then code generation. Files: ${FILES_LIST}"
 
