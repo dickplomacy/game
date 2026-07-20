@@ -27,9 +27,9 @@ jobs:
 
       - name: Show Repo Structure
         run: |
-          echo "=== Repository Files ===" >&2
-          find . -type f -name "*.js" -o -name "*.py" -o -name "*.ts" -o -name "*.java" 2>/dev/null | head -50 >&2
-          echo "=======================" >&2
+          echo "=== Repository Files ==="
+          find . -type f -name "*.js" -o -name "*.py" -o -name "*.ts" -o -name "*.java" 2>/dev/null | head -50
+          echo "======================="
 
       - name: Collect Code Files
         id: collect
@@ -102,9 +102,9 @@ jobs:
 
       - name: Show Collected Context Size
         run: |
-          echo "Context bytes output: ${{ steps.collect.outputs.bytes }}" >&2
+          echo "Context bytes output: ${{ steps.collect.outputs.bytes }}"
           if [ "${{ steps.collect.outputs.bytes }}" -lt 100 ]; then
-            echo "::warning::No code context collected!" >&2
+            echo "::warning::No code context collected!"
           fi
 
       - name: Build Prompt
@@ -119,9 +119,14 @@ jobs:
           echo "FORMAT YOUR RESPONSE:" >> "$PROMPT_FILE"
           echo "1. Summarize the bug in 2-3 sentences" >> "$PROMPT_FILE"
           echo "2. Provide code blocks with FILE PATHS for each changed file" >> "$PROMPT_FILE"
-          echo '   ```javascript path/to/file.js' >> "$PROMPT_FILE"
+          echo '   ```javascript src/App.jsx' >> "$PROMPT_FILE"
           echo "   // your code here" >> "$PROMPT_FILE"
           echo '   ```' >> "$PROMPT_FILE"
+          echo "" >> "$PROMPT_FILE"
+          echo "IMPORTANT: Do NOT write 'path=' in the code block. Just the file path." >> "$PROMPT_FILE"
+          echo "BAD:  ```javascript path=./src/App.jsx" >> "$PROMPT_FILE"
+          echo "GOOD: ```javascript src/App.jsx" >> "$PROMPT_FILE"
+          echo "" >> "$PROMPT_FILE"
           echo "3. List all changed files under 'CHANGED FILES:'" >> "$PROMPT_FILE"
           echo "" >> "$PROMPT_FILE"
           echo "Repository: ${{ github.repository }}" >> "$PROMPT_FILE"
@@ -168,7 +173,7 @@ jobs:
             echo "$CONTENT" > /tmp/response.txt
             echo "status=success" >> $GITHUB_OUTPUT
           else
-            echo "Invalid response: $(echo "$RESPONSE" | jq -r '.error.message // "unknown"')" >&2
+            echo "Invalid response: $(echo "$RESPONSE" | jq -r '.error.message // "unknown"')"
             exit 1
           fi
 
@@ -195,25 +200,23 @@ jobs:
         if: steps.api.outputs.status == 'success'
         id: fixes
         run: |
-          echo "=== Applying Fixes Debug ===" >&2
-          echo "Response file exists: $(test -f /tmp/response.txt && echo 'yes' || echo 'no')" >&2
-          echo "Response size: $(wc -c < /tmp/response.txt 2>/dev/null || echo '0') bytes" >&2
+          echo "=== Applying Fixes Debug ==="
+          echo "Response file exists: $(test -f /tmp/response.txt && echo 'yes' || echo 'no')"
+          echo "Response size: $(wc -c < /tmp/response.txt 2>/dev/null || echo '0') bytes"
           
           > /tmp/changed.txt
-          > /tmp/debug_extracts.txt
           
           # Show first 500 chars of response
-          echo "=== First 500 chars of response ===" >&2
-          head -c 500 /tmp/response.txt >&2
-          echo "" >&2
+          echo "=== First 500 chars of response ==="
+          head -c 500 /tmp/response.txt
+          echo ""
           
-          # Extract code blocks with awk (more flexible pattern)
+          # Extract code blocks with awk (fixed syntax - no >&2)
           awk '
           BEGIN { inblock = 0; outfile = ""; block_num = 0 }
           /^```/ {
             if (inblock) {
               close(outfile)
-              print "Closed file: " outfile >&2
               inblock = 0
               outfile = ""
             } else {
@@ -225,19 +228,17 @@ jobs:
               gsub(/[[:cntrl:]]/, "", line)
               filepath = line
               
-              print "Block " block_num ": filepath='" filepath "'" >&2
+              print "Block " block_num ": filepath=" filepath
               
-              # More flexible: accept paths with or without leading ./
               if ((index(filepath, "/") > 0 || substr(filepath, 1, 2) == "./") && match(filepath, /\.[a-z]+$/)) {
-                # Clean the path
                 gsub(/^\.\//, "", filepath)
                 cmd = "mkdir -p $(dirname \"" filepath "\") 2>/dev/null"
                 system(cmd)
                 outfile = filepath
                 print filepath >> "/tmp/changed.txt"
-                print "Will write to: " filepath >&2
+                print "Will write to: " filepath
               } else {
-                print "Skipping (no valid path): " filepath >&2
+                print "Skipping (no valid path): " filepath
                 outfile = "/dev/null"
               }
             }
@@ -248,22 +249,21 @@ jobs:
           }
           ' /tmp/response.txt
           
-          # Show results
-          echo "=== Extraction Results ===" >&2
+          echo "=== Extraction Results ==="
           if [ -s /tmp/changed.txt ]; then
-            echo "Files to commit:" >&2
-            cat /tmp/changed.txt >&2
+            echo "Files to commit:"
+            cat /tmp/changed.txt
           else
-            echo "NO FILES EXTRACTED - Check response format" >&2
+            echo "NO FILES EXTRACTED - Check response format"
           fi
           
           if [ -s /tmp/changed.txt ]; then
             while IFS= read -r FILE; do
               if [ -n "$FILE" ] && [ -f "$FILE" ]; then
-                echo "Adding: $FILE" >&2
+                echo "Adding: $FILE"
                 git add "$FILE"
               else
-                echo "File not found: $FILE" >&2
+                echo "File not found: $FILE"
               fi
             done < /tmp/changed.txt
             
@@ -271,13 +271,12 @@ jobs:
               git commit -m "[DeepSeek] Auto-fix for issue ${{ github.event.issue.number }}"
               git push -u origin "${{ steps.branch.outputs.name }}"
               echo "applied=true" >> $GITHUB_OUTPUT
-              echo "SUCCESS: Changes committed and pushed" >&2
+              echo "SUCCESS: Changes committed and pushed"
             else
-              echo "No staged changes to commit" >&2
+              echo "No staged changes to commit"
             fi
           else
-            echo "WARNING: No files extracted from response. The bot could not auto-apply changes." >&2
-            echo "This usually means DeepSeek did not provide code blocks with file paths." >&2
+            echo "WARNING: No files extracted from response."
           fi
 
       - name: Create PR
