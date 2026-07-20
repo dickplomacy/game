@@ -145,7 +145,7 @@ function FullOrderHistory({ history, onClose }) {
         </div>
         <div style={{ overflowY: 'auto', padding: '10px 16px', fontSize: 12 }}>
           {history.length === 0 && <div style={{ color: '#888', textAlign: 'center', padding: '16px 0' }}>No turns recorded yet.</div>}
-          {history.map((turn, ti) => {
+          {[...history].reverse().map((turn, ti) => {
             const heading = `${SEASON[turn.phase] ?? turn.phase} ${turn.year ?? ''} — ${KIND[turn.phase] ?? ''}`;
             const powers = Object.keys(turn.ordersByPower ?? {}).filter(p => (turn.ordersByPower[p] ?? []).length > 0);
             return (
@@ -1335,74 +1335,3 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
 }
 
 export default App;
-{/* existing comment removed for brevity */}
-      <div style={{ overflowY: 'auto', padding: '10px 16px', fontSize: 12 }}>
-        {history.length === 0 && <div style={{ color: '#888', textAlign: 'center', padding: '16px 0' }}>No turns recorded yet.</div>}
-        {[...history].reverse().map((turn, ti) => {
-          const heading = `${SEASON[turn.phase] ?? turn.phase} ${turn.year ?? ''} — ${KIND[turn.phase] ?? ''}`;
-          const powers = Object.keys(turn.ordersByPower ?? {}).filter(p => (turn.ordersByPower[p] ?? []).length > 0);
-          return (
-            <div key={ti} style={{ marginBottom: 14 }}>
-              <div style={{ fontWeight: 700, fontSize: 12, color: '#1a1a2e', borderBottom: '2px solid #1a1a2e', paddingBottom: 3, marginBottom: 6, letterSpacing: '0.03em' }}>{heading}</div>
-              {powers.length === 0 && <div style={{ color: '#aaa', fontStyle: 'italic', paddingLeft: 6 }}>No orders.</div>}
-              {powers.map(power => (
-                <div key={power} style={{ marginBottom: 6, borderLeft: `3px solid ${POWER_COLOR[power] ?? '#999'}`, paddingLeft: 8 }}>
-                  <div style={{ fontWeight: 700, fontSize: 10, color: POWER_COLOR[power] ?? '#999', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{power}</div>
-                  {turn.ordersByPower[power].map((line, li) => (
-                    <div key={li} style={{ color: '#333', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11.5, lineHeight: 1.5 }}>{line}</div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          );
-        })}
-      </div>
-  // ── Full order-history formatting (grouped by power, Diplomacy notation) ──────
-  // Move phase: every unit is listed, unordered units shown as an explicit hold.
-// ... (previous code remains unchanged until the FullOrderHistory function)
-
-function FullOrderHistory({ history, onClose }) {
-  const safeHistory = Array.isArray(history) ? history : history ? [history] : [];
-  const SEASON = { 'spring-move': 'Spring', 'spring-retreat': 'Spring', 'fall-move': 'Fall', 'fall-retreat': 'Fall', 'winter': 'Winter' };
-  const KIND = { 'spring-move': 'Moves', 'fall-move': 'Moves', 'spring-retreat': 'Retreats', 'fall-retreat': 'Retreats', 'winter': 'Adjustments' };
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, width: 'min(680px, 96vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #eee' }}>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>Full order history</div>
-          <button onClick={onClose} style={{ padding: '4px 10px', cursor: 'pointer', background: '#eee', border: '1px solid #ccc', borderRadius: 4, fontSize: 13, fontWeight: 700 }}>✕</button>
-        </div>
-        <div style={{ overflowY: 'auto', padding: '10px 16px', fontSize: 12 }}>
-          {safeHistory.length === 0 && <div style={{ color: '#888', textAlign: 'center', padding: '16px 0' }}>No turns recorded yet.</div>}
-          {safeHistory.map((turn, ti) => {
-            const heading = `${SEASON[turn.phase] ?? turn.phase} ${turn.year ?? ''} — ${KIND[turn.phase] ?? ''}`;
-            const powers = Object.keys(turn.ordersByPower ?? {}).filter(p => (turn.ordersByPower[p] ?? []).length > 0);
-            return (
-              <div key={ti} style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 700, fontSize: 12, color: '#1a1a2e', borderBottom: '2px solid #1a1a2e', paddingBottom: 3, marginBottom: 6, letterSpacing: '0.03em' }}>{heading}</div>
-                {powers.length === 0 && <div style={{ color: '#aaa', fontStyle: 'italic', paddingLeft: 6 }}>No orders.</div>}
-                {powers.map(power => (
-                  <div key={power} style={{ marginBottom: 6, borderLeft: `3px solid ${POWER_COLOR[power] ?? '#999'}`, paddingLeft: 8 }}>
-                    <div style={{ fontWeight: 700, fontSize: 10, color: POWER_COLOR[power] ?? '#999', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{power}</div>
-                    {turn.ordersByPower[power].map((line, li) => (
-                      <div key={li} style={{ color: '#333', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11.5, lineHeight: 1.5 }}>{line}</div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-import { useEffect, useRef, useState } from "react";
-import DipMap from "./DipMap";
-import territories from "./territories.json";
-import { resolve } from "./resolver";
-import { submitOrders, unsubmitOrders, saveDraftOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
-import winCondition from "./winCondition";        // ← whole module import
-const { checkWinner, POWERS, SC_IDS } = winCondition; // ← destructure
-import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits, lastOccupiedFromUnits } from "./adjustments";
-// … rest unchanged
