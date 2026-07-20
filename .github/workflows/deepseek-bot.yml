@@ -94,14 +94,13 @@ jobs:
             curl \
             grep \
             sed \
-            awk \
             coreutils \
             git \
             nodejs \
             npm
 
+          # awk is pre-installed on ubuntu-latest, no need to install
           echo "✓ Dependencies installed"
-
       # ==========================================================================
       # PHASE 1: MAXIMUM CONTEXT GATHERING
       # ==========================================================================
