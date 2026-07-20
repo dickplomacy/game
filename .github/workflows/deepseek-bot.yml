@@ -356,6 +356,8 @@ jobs:
         if: steps.validate.outputs.skip != 'true'
         id: build_analysis
         run: |
+          set -euo pipefail
+
           CODE_CONTEXT=""
           if [ -f /tmp/code_context.txt ]; then
             CODE_CONTEXT=$(cat /tmp/code_context.txt)
@@ -446,12 +448,18 @@ jobs:
           Begin your detailed analysis now.
           PROMPT_EOF
 
-          # Replace placeholders AFTER heredoc closes to avoid YAML conflicts
-          sed -i "s/{{METRICS_JSON}}/${METRICS_JSON}/g" /tmp/analysis_prompt.txt
-          sed -i "s/{{REPO}}/${{ github.repository }}/g" /tmp/analysis_prompt.txt
-          sed -i "s/{{ISSUE_NUM}}/${{ github.event.issue.number || github.event.pull_request.number }}/g" /tmp/analysis_prompt.txt
-          sed -i "s/{{EVENT_TYPE}}/${{ github.event_name }}/g" /tmp/analysis_prompt.txt
-          sed -i "s|{{REQUEST}}|$(cat /tmp/original_request.txt | sed 's/[&/\]/\\&/g')|g" /tmp/analysis_prompt.txt
+          # Replace placeholders using printf + temp files to avoid sed conflicts
+          echo "${METRICS_JSON}" > /tmp/metrics_temp.txt
+          sed 's/[&/\]/\\&/g' /tmp/metrics_temp.txt > /tmp/metrics_escaped.txt || true
+          sed -i "s|{{METRICS_JSON}}|$(cat /tmp/metrics_escaped.txt)|g" /tmp/analysis_prompt.txt
+
+          sed -i "s|{{REPO}}|${{ github.repository }}|g" /tmp/analysis_prompt.txt
+          sed -i "s|{{ISSUE_NUM}}|${{ github.event.issue.number || github.event.pull_request.number }}|g" /tmp/analysis_prompt.txt
+          sed -i "s|{{EVENT_TYPE}}|${{ github.event_name }}|g" /tmp/analysis_prompt.txt
+
+          # Escape REQUEST safely
+          REQUEST_ESCAPED=$(cat /tmp/original_request.txt | sed 's/[&/\]/\\&/g' | tr -d '\n')
+          sed -i "s|{{REQUEST}}|${REQUEST_ESCAPED}|g" /tmp/analysis_prompt.txt
 
           echo "✓ Analysis prompt built ($(wc -c < /tmp/analysis_prompt.txt) bytes)"
           echo "prompt_size=$(wc -c < /tmp/analysis_prompt.txt)" >> $GITHUB_OUTPUT
