@@ -195,48 +195,89 @@ jobs:
         if: steps.api.outputs.status == 'success'
         id: fixes
         run: |
+          echo "=== Applying Fixes Debug ===" >&2
+          echo "Response file exists: $(test -f /tmp/response.txt && echo 'yes' || echo 'no')" >&2
+          echo "Response size: $(wc -c < /tmp/response.txt 2>/dev/null || echo '0') bytes" >&2
+          
           > /tmp/changed.txt
-
+          > /tmp/debug_extracts.txt
+          
+          # Show first 500 chars of response
+          echo "=== First 500 chars of response ===" >&2
+          head -c 500 /tmp/response.txt >&2
+          echo "" >&2
+          
+          # Extract code blocks with awk (more flexible pattern)
           awk '
-          BEGIN { inblock = 0; outfile = "" }
+          BEGIN { inblock = 0; outfile = ""; block_num = 0 }
           /^```/ {
             if (inblock) {
               close(outfile)
+              print "Closed file: " outfile >&2
               inblock = 0
               outfile = ""
             } else {
               inblock = 1
+              block_num++
               line = $0
               gsub(/^```[a-zA-Z]*[[:space:]]*/, "", line)
               gsub(/[[:space:]]*```$/, "", line)
               gsub(/[[:cntrl:]]/, "", line)
               filepath = line
-
-              if (index(filepath, "/") > 0 && match(filepath, /[a-z]+\.[a-z]+$/)) {
+              
+              print "Block " block_num ": filepath='" filepath "'" >&2
+              
+              # More flexible: accept paths with or without leading ./
+              if ((index(filepath, "/") > 0 || substr(filepath, 1, 2) == "./") && match(filepath, /\.[a-z]+$/)) {
+                # Clean the path
+                gsub(/^\.\//, "", filepath)
                 cmd = "mkdir -p $(dirname \"" filepath "\") 2>/dev/null"
                 system(cmd)
                 outfile = filepath
                 print filepath >> "/tmp/changed.txt"
+                print "Will write to: " filepath >&2
               } else {
+                print "Skipping (no valid path): " filepath >&2
                 outfile = "/dev/null"
               }
             }
             next
           }
-          inblock && outfile != "/dev/null" {
+          inblock && outfile != "/dev/null" && outfile != "" {
             print >> outfile
           }
           ' /tmp/response.txt
-
+          
+          # Show results
+          echo "=== Extraction Results ===" >&2
+          if [ -s /tmp/changed.txt ]; then
+            echo "Files to commit:" >&2
+            cat /tmp/changed.txt >&2
+          else
+            echo "NO FILES EXTRACTED - Check response format" >&2
+          fi
+          
           if [ -s /tmp/changed.txt ]; then
             while IFS= read -r FILE; do
-              [ -n "$FILE" ] && git add "$FILE"
+              if [ -n "$FILE" ] && [ -f "$FILE" ]; then
+                echo "Adding: $FILE" >&2
+                git add "$FILE"
+              else
+                echo "File not found: $FILE" >&2
+              fi
             done < /tmp/changed.txt
+            
             if ! git diff --cached --quiet; then
               git commit -m "[DeepSeek] Auto-fix for issue ${{ github.event.issue.number }}"
               git push -u origin "${{ steps.branch.outputs.name }}"
               echo "applied=true" >> $GITHUB_OUTPUT
+              echo "SUCCESS: Changes committed and pushed" >&2
+            else
+              echo "No staged changes to commit" >&2
             fi
+          else
+            echo "WARNING: No files extracted from response. The bot could not auto-apply changes." >&2
+            echo "This usually means DeepSeek did not provide code blocks with file paths." >&2
           fi
 
       - name: Create PR
