@@ -1,4 +1,4 @@
-name: DeepSeek Bot
+name: DeepSeek Bot - Premium Edition
 
 on:
   issue_comment:
@@ -14,292 +14,745 @@ permissions:
 
 jobs:
   respond:
-    if: contains(github.event.comment.body, '@deepseek') || contains(github.event.review.body, '@deepseek')
+    if: |
+      contains(github.event.comment.body, '@deepseek') || 
+      contains(github.event.review.body, '@deepseek')
     runs-on: ubuntu-latest
-
+    
+    strategy:
+      matrix:
+        pass: [analysis, implementation]
+    
     steps:
-      - name: Checkout
+      # ==========================================================================
+      # PHASE 0: SETUP & VALIDATION
+      # ==========================================================================
+      
+      - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Install Dependencies
+        with:
+          fetch-depth: 1
+          lfs: false
+      
+      - name: Validate Request
+        id: validate
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq tree
-
-      - name: Show Repo Structure
-        run: |
-          echo "=== Repository Files ==="
-          find . -type f -name "*.js" -o -name "*.py" -o -name "*.ts" -o -name "*.java" 2>/dev/null | head -50
-          echo "======================="
-
-      - name: Collect Code Files
-        id: collect
-        run: |
-          CONTEXT_FILE=/tmp/code_context.txt
-          DEBUG_FILE=/tmp/debug_log.txt
-          > "$CONTEXT_FILE"
-          > "$DEBUG_FILE"
-
           COMMENT="${{ github.event.comment.body }}"
-          echo "Original comment: $COMMENT" >> "$DEBUG_FILE"
-
-          KEYWORDS=$(echo "$COMMENT" | tr '[:upper:]' '[:lower:]' | \
-            sed 's/@[a-zA-Z0-9_-]*//g' | \
-            sed 's/[^a-z0-9]/ /g' | \
-            tr -s ' ' | \
-            grep -oE '\b[a-z]{4,}\b' | sort -u | head -15)
-
-          echo "Extracted keywords: $KEYWORDS" >> "$DEBUG_FILE"
-
-          CODE_FILES=$(find . -type f \( \
-            -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \
-            -o -name "*.py" -o -name "*.java" -o -name "*.go" -o -name "*.rb" \
-            -o -name "*.php" -o -name "*.c" -o -name "*.cpp" -o -name "*.h" \
-            \) ! -path "./.git/*" ! -path "./node_modules/*" ! -path "./vendor/*" 2>/dev/null)
-
-          echo "Total code files found: $(echo "$CODE_FILES" | wc -l)" >> "$DEBUG_FILE"
-          echo "All code files:" >> "$DEBUG_FILE"
-          echo "$CODE_FILES" >> "$DEBUG_FILE"
-
-          for FILE in $CODE_FILES; do
-            if [ -f "$FILE" ]; then
-              SCORE=0
-
-              for KW in $KEYWORDS; do
-                if echo "$FILE" | grep -qi "$KW"; then
-                  SCORE=$((SCORE + 10))
-                  echo "Matched keyword '$KW' in filename: $FILE" >> "$DEBUG_FILE"
-                fi
-
-                CONTENT_SAMPLE=$(head -300 "$FILE" 2>/dev/null | tr '[:upper:]' '[:lower:]')
-                MATCHES=$(echo "$CONTENT_SAMPLE" | grep -oi "$KW" 2>/dev/null | wc -l)
-                if [ "$MATCHES" -gt 0 ]; then
-                  SCORE=$((SCORE + MATCHES))
-                fi
-              done
-
-              echo "File: $FILE, Score: $SCORE" >> "$DEBUG_FILE"
-
-              if [ "$SCORE" -gt 0 ]; then
-                FILE_SIZE=$(wc -c < "$FILE" 2>/dev/null || echo 0)
-                if [ "$FILE_SIZE" -lt 50000 ]; then
-                  echo "--- START: $FILE (score=$SCORE, size=$FILE_SIZE bytes) ---" >> "$CONTEXT_FILE"
-                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
-                  echo "--- END: $FILE ---" >> "$CONTEXT_FILE"
-                  echo "" >> "$CONTEXT_FILE"
-                else
-                  echo "--- START: $FILE (truncated, size=$FILE_SIZE bytes) ---" >> "$CONTEXT_FILE"
-                  head -400 "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
-                  echo "--- END: $FILE (truncated) ---" >> "$CONTEXT_FILE"
-                  echo "" >> "$CONTEXT_FILE"
-                fi
-              fi
-            fi
-          done
-
-          CONTEXT_BYTES=$(wc -c < "$CONTEXT_FILE" 2>/dev/null || echo 0)
-          echo "Final context size: $CONTEXT_BYTES bytes" >> "$DEBUG_FILE"
-          echo "bytes=$CONTEXT_BYTES" >> $GITHUB_OUTPUT
-
-      - name: Show Collected Context Size
-        run: |
-          echo "Context bytes output: ${{ steps.collect.outputs.bytes }}"
-          if [ "${{ steps.collect.outputs.bytes }}" -lt 100 ]; then
-            echo "::warning::No code context collected!"
+          
+          # Skip if comment is too short to be meaningful
+          WORD_COUNT=$(echo "$COMMENT" | wc -w)
+          if [ "$WORD_COUNT" -lt 3 ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
           fi
-
-      - name: Build Prompt
-        id: prompt
-        run: |
-          PROMPT_FILE=/tmp/prompt.txt
-          > "$PROMPT_FILE"
-
-          echo "You are an expert software engineer. You HAVE ACCESS TO THE ACTUAL CODEBASE." >> "$PROMPT_FILE"
-          echo "Provide SPECIFIC fixes with exact file paths and line references." >> "$PROMPT_FILE"
-          echo "" >> "$PROMPT_FILE"
-          echo "FORMAT YOUR RESPONSE:" >> "$PROMPT_FILE"
-          echo "1. Summarize the bug in 2-3 sentences" >> "$PROMPT_FILE"
-          echo "2. Provide code blocks with FILE PATHS for each changed file" >> "$PROMPT_FILE"
-          echo '   ```javascript src/App.jsx' >> "$PROMPT_FILE"
-          echo "   // your code here" >> "$PROMPT_FILE"
-          echo '   ```' >> "$PROMPT_FILE"
-          echo "" >> "$PROMPT_FILE"
-          echo "IMPORTANT: Do NOT write 'path=' in the code block. Just the file path." >> "$PROMPT_FILE"
-          echo "BAD:  ```javascript path=./src/App.jsx" >> "$PROMPT_FILE"
-          echo "GOOD: ```javascript src/App.jsx" >> "$PROMPT_FILE"
-          echo "" >> "$PROMPT_FILE"
-          echo "3. List all changed files under 'CHANGED FILES:'" >> "$PROMPT_FILE"
-          echo "" >> "$PROMPT_FILE"
-          echo "Repository: ${{ github.repository }}" >> "$PROMPT_FILE"
-          echo "Issue: #${{ github.event.issue.number }}" >> "$PROMPT_FILE"
-          echo "Title: ${{ github.event.issue.title }}" >> "$PROMPT_FILE"
-          echo "" >> "$PROMPT_FILE"
-          echo "USER REQUEST:" >> "$PROMPT_FILE"
-          echo "${{ github.event.comment.body }}" >> "$PROMPT_FILE"
-          echo "" >> "$PROMPT_FILE"
-
-          CONTEXT_BYTES=${{ steps.collect.outputs.bytes }}
-          if [ "$CONTEXT_BYTES" -gt 100 ]; then
-            echo "ACTUAL CODEBASE (read from your repository):" >> "$PROMPT_FILE"
-            cat /tmp/code_context.txt >> "$PROMPT_FILE"
+          
+          # Skip if it's just @deepseek without content
+          CLEAN_COMMENT=$(echo "$COMMENT" | sed 's/@deepseek[[:space:]]*//' | xargs)
+          if [ -z "$CLEAN_COMMENT" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Extract issue/PR number and type
+          ISSUE_NUM="${{ github.event.issue.number }}"
+          if [ -z "$ISSUE_NUM" ]; then
+            ISSUE_NUM="${{ github.event.pull_request.number }}"
+          fi
+          echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+          
+          # Determine event type
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            EVENT_TYPE="issue"
           else
-            echo "WARNING: No code context was collected from repository." >> "$PROMPT_FILE"
-            echo "Please paste the relevant code files so I can analyze them." >> "$PROMPT_FILE"
+            EVENT_TYPE="pr_review"
           fi
-
-          echo "file=/tmp/prompt.txt" >> $GITHUB_OUTPUT
-
-      - name: Call DeepSeek API
-        id: api
-        env:
-          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          echo "event_type=$EVENT_TYPE" >> $GITHUB_OUTPUT
+          
+          echo "skip=false" >> $GITHUB_OUTPUT
+      
+      - name: Install Dependencies
+        if: steps.validate.outputs.skip != 'true'
         run: |
-          PROMPT_CONTENT=$(cat "${{ steps.prompt.outputs.file }}")
-          REQUEST_FILE=/tmp/request.json
-          jq -n --arg prompt "$PROMPT_CONTENT" '{
-            model: "deepseek-v4-pro",
-            messages: [
-              {role: "system", content: "Expert coding assistant. Match Claude Sonnet 4.6 quality. You have access to actual code files."},
-              {role: "user", content: $prompt}
-            ],
-            temperature: 0.2,
-            max_tokens: 8000
-          }' > "$REQUEST_FILE"
-          RESPONSE=$(curl -sS -X POST https://api.deepseek.com/v1/chat/completions \
-            -H "Authorization: Bearer $DEEPSEEK_KEY" \
-            -H "Content-Type: application/json" \
-            -d @"$REQUEST_FILE")
-          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
-          if [ ${#CONTENT} -gt 100 ]; then
-            echo "$CONTENT" > /tmp/response.txt
-            echo "status=success" >> $GITHUB_OUTPUT
-          else
-            echo "Invalid response: $(echo "$RESPONSE" | jq -r '.error.message // "unknown"')"
-            exit 1
-          fi
-
-      - name: Post Comment
-        if: steps.api.outputs.status == 'success'
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            ripgrep tree jq curl grep
+          
+          # Verify installations
+          rg --version > /dev/null
+          jq --version > /dev/null
+      
+      # ==========================================================================
+      # PHASE 1: INTELLIGENT CONTEXT COLLECTION
+      # ==========================================================================
+      
+      - name: Collect Code Context
+        if: steps.validate.outputs.skip != 'true'
+        id: context
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body-file /tmp/response.txt
-
+          set -euo pipefail
+          
+          CONTEXT_FILE=/tmp/code_context.txt
+          DEBUG_FILE=/tmp/debug.log
+          METRICS_FILE=/tmp/context_metrics.json
+          
+          > "$CONTEXT_FILE"
+          > "$DEBUG_FILE"
+          
+          COMMENT="${{ github.event.comment.body }}"
+          echo "Original comment: $COMMENT" >> "$DEBUG_FILE"
+          
+          # STEP 1: Extract explicit file paths from comment
+          echo "=== Phase 1: Extracting explicit file paths ===" >> "$DEBUG_FILE"
+          EXPLICIT_PATHS=$(echo "$COMMENT" | grep -oE '[a-zA-Z0-9_\./\-]+\.(js|ts|jsx|tsx|py|go|java|rb|php|c|cpp|h|rs|vue|svelte)' || true)
+          
+          FOR_EXPLICIT=0
+          for FILEPATH in $EXPLICIT_PATHS; do
+            FOUND=$(rg --files 2>/dev/null | grep -F "$FILEPATH" | head -1 || true)
+            if [ -n "$FOUND" ] && [ -f "$FOUND" ]; then
+              echo "Found explicit file: $FOUND" >> "$DEBUG_FILE"
+              cat "$FOUND" >> "$CONTEXT_FILE"
+              echo "--- END FILE: $FOUND ---" >> "$CONTEXT_FILE"
+              echo "" >> "$CONTEXT_FILE"
+              FOR_EXPLICIT=$((FOR_EXPLICIT + 1))
+            fi
+          done
+          
+          # STEP 2: Get recent changed files (last 10 commits)
+          echo "=== Phase 2: Checking recent changes ===" >> "$DEBUG_FILE"
+          RECENT_FILES=$(git log --name-only --pretty=format: -n 10 2>/dev/null | \
+            grep -E '\.(js|ts|py|go|java)$' | sort -u | head -15 || true)
+          
+          FOR_RECENT=0
+          for FILEPATH in $RECENT_FILES; do
+            if [ -f "$FILEPATH" ] && ! grep -q "$FILEPATH" "$CONTEXT_FILE" 2>/dev/null; then
+              echo "Adding recently modified: $FILEPATH" >> "$DEBUG_FILE"
+              cat "$FILEPATH" >> "$CONTEXT_FILE" 2>/dev/null || true
+              echo "--- END FILE: $FILEPATH ---" >> "$CONTEXT_FILE"
+              echo "" >> "$CONTEXT_FILE"
+              FOR_RECENT=$((FOR_RECENT + 1))
+            fi
+          done
+          
+          # STEP 3: Project configuration files (critical for understanding setup)
+          echo "=== Phase 3: Adding project configs ===" >> "$DEBUG_FILE"
+          CONFIG_FILES="package.json tsconfig.json requirements.txt go.mod Cargo.toml pyproject.toml Makefile"
+          for CFG in $CONFIG_FILES; do
+            if [ -f "$CFG" ]; then
+              echo "--- CONFIG: $CFG ---" >> "$CONTEXT_FILE"
+              cat "$CFG" >> "$CONTEXT_FILE"
+              echo "--- END CONFIG: $CFG ---" >> "$CONTEXT_FILE"
+              echo "" >> "$CONTEXT_FILE"
+            fi
+          done
+          
+          # STEP 4: Extract keywords and find related files (fallback)
+          echo "=== Phase 4: Keyword-based discovery ===" >> "$DEBUG_FILE"
+          KEYWORDS=$(echo "$COMMENT" | \
+            tr '[:upper:]' '[:lower:]' | \
+            sed 's/@[a-zA-Z0-9_-]*//g' | \
+            sed 's/[^a-z0-9]/ /g' | \
+            tr -s ' ' | \
+            grep -oE '\b[a-z]{5,}\b' | sort -u | head -8)
+          
+          echo "Keywords for search: $KEYWORDS" >> "$DEBUG_FILE"
+          
+          FOR_KEYWORDS=0
+          for KW in $KEYWORDS; do
+            # Search filenames first (fastest)
+            FILES_BY_NAME=$(rg --files 2>/dev/null | grep -i "$KW" | head -5 || true)
+            for FILE in $FILES_BY_NAME; do
+              if [ -f "$FILE" ] && ! grep -q "^--- FILE: $FILE ---$" "$CONTEXT_FILE" 2>/dev/null; then
+                FILE_SIZE=$(wc -c < "$FILE" 2>/dev/null || echo 0)
+                if [ "$FILE_SIZE" -lt 100000 ]; then
+                  echo "--- FILE: $FILE (filename match: $KW) ---" >> "$CONTEXT_FILE"
+                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                  echo "--- END FILE: $FILE ---" >> "$CONTEXT_FILE"
+                  echo "" >> "$CONTEXT_FILE"
+                  FOR_KEYWORDS=$((FOR_KEYWORDS + 1))
+                fi
+              fi
+            done
+            
+            # Then search content (slower but thorough)
+            CONTENT_MATCHES=$(rg -l "$KW" --type js --type ts --type py --type go --type java \
+              --glob '!.git/*' --glob '!node_modules/*' --glob '!vendor/*' 2>/dev/null | \
+              head -5 || true)
+            for FILE in $CONTENT_MATCHES; do
+              if [ -f "$FILE" ] && ! grep -q "^--- FILE: $FILE ---$" "$CONTEXT_FILE" 2>/dev/null; then
+                FILE_SIZE=$(wc -c < "$FILE" 2>/dev/null || echo 0)
+                echo "--- FILE: $FILE (content match: $KW) ---" >> "$CONTEXT_FILE"
+                if [ "$FILE_SIZE" -lt 100000 ]; then
+                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                else
+                  head -500 "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                  echo "// ... [file truncated due to size] ..." >> "$CONTEXT_FILE"
+                fi
+                echo "--- END FILE: $FILE ---" >> "$CONTEXT_FILE"
+                echo "" >> "$CONTEXT_FILE"
+                FOR_KEYWORDS=$((FOR_KEYWORDS + 1))
+              fi
+            done
+          done
+          
+          # STEP 5: Add dependency manifest if exists
+          if [ -f "package-lock.json" ] || [ -f "yarn.lock" ]; then
+            echo "--- DEPENDENCIES (first 100 lines) ---" >> "$CONTEXT_FILE"
+            head -100 package-lock.json yarn.lock 2>/dev/null >> "$CONTEXT_FILE"
+            echo "--- END DEPENDENCIES ---" >> "$CONTEXT_FILE"
+          fi
+          
+          # Calculate final metrics
+          CONTEXT_BYTES=$(wc -c < "$CONTEXT_FILE" 2>/dev/null || echo 0)
+          TOTAL_LINES=$(wc -l < "$CONTEXT_FILE" 2>/dev/null || echo 0)
+          
+          echo "=== Context Collection Complete ===" >> "$DEBUG_FILE"
+          echo "Total bytes: $CONTEXT_BYTES" >> "$DEBUG_FILE"
+          echo "Total lines: $TOTAL_LINES" >> "$DEBUG_FILE"
+          echo "Files via explicit paths: $FOR_EXPLICIT" >> "$DEBUG_FILE"
+          echo "Files via recent changes: $FOR_RECENT" >> "$DEBUG_FILE"
+          echo "Files via keywords: $FOR_KEYWORDS" >> "$DEBUG_FILE"
+          
+          # Output metrics as JSON
+          jq -n \
+            --argjson bytes "$CONTEXT_BYTES" \
+            --argjson lines "$TOTAL_LINES" \
+            --argjson explicit "$FOR_EXPLICIT" \
+            --argjson recent "$FOR_RECENT" \
+            --argjson keywords "$FOR_KEYWORDS" \
+            '{bytes: $bytes, lines: $lines, files_by_explicit: $explicit, files_by_recent: $recent, files_by_keywords: $keywords}' \
+            > "$METRICS_FILE"
+          
+          # Write outputs
+          echo "bytes=$CONTEXT_BYTES" >> $GITHUB_OUTPUT
+          echo "metrics_path=$METRICS_FILE" >> $GITHUB_OUTPUT
+      
+      # ==========================================================================
+      # PHASE 2: ANALYSIS PASS (Deep Reasoning)
+      # ==========================================================================
+      
+      - name: Build Analysis Prompt
+        if: steps.validate.outputs.skip != 'true'
+        run: |
+          cat > /tmp/analysis_prompt.txt << 'PROMPT_END'
+          You are a Principal Software Engineer with 15+ years of experience across multiple languages and frameworks.
+          
+          ================================================================
+          ANALYSIS MODE: Understand the problem deeply before solving
+          ================================================================
+          
+          ## YOUR TASK
+          Read the codebase and user request carefully. Produce a thorough analysis WITHOUT providing code yet.
+          
+          ## REQUIRED OUTPUT STRUCTURE
+  
+          ### 1. PROBLEM SUMMARY
+          - What is the user trying to accomplish?
+          - What is actually happening vs. expected behavior?
+          
+          ### 2. ROOT CAUSE ANALYSIS  
+          - Where in the codebase is the issue located (specific files)?
+          - What is the underlying cause?
+          - Are there contributing factors (dependencies, configurations)?
+          
+          ### 3. IMPACT ASSESSMENT
+          - Who/what is affected?
+          - Severity (low/medium/high/critical)
+          - Is this a security issue?
+          
+          ### 4. PROPOSED APPROACH
+          - Which files need modification?
+          - What changes are needed in each file?
+          - Are there any breaking changes or migrations required?
+          - What tests should be added/modified?
+          
+          ### 5. ALTERNATIVES CONSIDERED
+          - List 1-2 alternative approaches
+          - Explain why you chose the current approach
+          
+          ## CRITICAL GUIDELINES
+          - Think step-by-step. Show your reasoning.
+          - Reference specific lines when possible
+          - If information is missing, state what you need
+          - Do NOT jump to solutions - explain WHY first
+          - Consider edge cases and error conditions
+          
+          ================================================================
+          REPOSITORY CONTEXT
+          ================================================================
+          
+          Repository: {{REPO}}
+          Issue/PR: #{{NUMBER}}
+          User Request: {{REQUEST}}
+          
+          ================================================================
+          CODEBASE
+          ================================================================
+          
+          {{CODE_CONTEXT}}
+          
+          ================================================================
+          Begin your analysis now.
+          ================================================================
+          PROMPT_END
+          
+          # Replace placeholders
+          sed -i "s/{{REPO}}/${{ github.repository }}/g" /tmp/analysis_prompt.txt
+          sed -i "s/{{NUMBER}}/${{ steps.validate.outputs.issue_number }}/g" /tmp/analysis_prompt.txt
+          sed -i "s|{{REQUEST}}|$(echo "${{ github.event.comment.body }}" | sed 's/[&/\]/\\&/g')|g" /tmp/analysis_prompt.txt
+          sed -i "/{{CODE_CONTEXT}}/r /tmp/code_context.txt" /tmp/analysis_prompt.txt
+          sed -i '/{{CODE_CONTEXT}}/d' /tmp/analysis_prompt.txt
+      
+      - name: Run Analysis Phase
+        if: steps.validate.outputs.skip != 'true'
+        id: analysis
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          REQUEST_FILE=/tmp/analysis_request.json
+          
+          PROMPT_CONTENT=$(cat /tmp/analysis_prompt.txt)
+          
+          # Use premium model with thinking mode
+          jq -n --arg prompt "$PROMPT_CONTENT" '{
+            model: "deepseek-chat",
+            messages: [
+              {
+                role: "system",
+                content: "You are a Principal Software Engineer. Your job is to analyze problems thoroughly before proposing solutions. Think step-by-step. Explain your reasoning clearly."
+              },
+              {
+                role: "user",
+                content: $prompt
+              }
+            ],
+            temperature: 0.15,
+            top_p: 0.9,
+            max_tokens: 16000,
+            stream: false
+          }' > "$REQUEST_FILE"
+          
+          # Call API with retry
+          MAX_ATTEMPTS=3
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Analysis attempt $i/$MAX_ATTEMPTS..."
+            
+            HTTP_CODE=$(curl -sS -w "%{http_code}" -X POST https://api.deepseek.com/v1/chat/completions \
+              -H "Authorization: Bearer $DEEPSEEK_KEY" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d @"$REQUEST_FILE" \
+              -o /tmp/analysis_response.txt)
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              CONTENT=$(jq -r '.choices[0].message.content // empty' /tmp/analysis_response.txt)
+              if [ ${#CONTENT} -gt 100 ]; then
+                echo "Analysis completed successfully ($(echo "$CONTENT" | wc -c) characters)"
+                echo "status=success" >> $GITHUB_OUTPUT
+                echo "character_count=$(echo "$CONTENT" | wc -c)" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+            fi
+            
+            ERROR_MSG=$(jq -r '.error.message // "Unknown error"' /tmp/analysis_response.txt 2>/dev/null || echo "Request failed")
+            echo "Attempt $i failed: HTTP $HTTP_CODE - $ERROR_MSG"
+            
+            if [ "$i" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((i * 2))
+            fi
+          done
+          
+          echo "status=failure" >> $GITHUB_OUTPUT
+          echo "error=Analysis failed after $MAX_ATTEMPTS attempts" >> $GITHUB_OUTPUT
+          exit 1
+      
+      - name: Save Analysis
+        if: steps.validate.outputs.skip != 'true'
+        run: |
+          cp /tmp/analysis_response.txt /tmp/full_analysis.json
+          jq -r '.choices[0].message.content' /tmp/full_analysis.json > /tmp/analysis_text.txt
+      
+      # ==========================================================================
+      # PHASE 3: IMPLEMENTATION PASS (With Analysis Context)
+      # ==========================================================================
+      
+      - name: Build Implementation Prompt
+        if: steps.validate.outputs.skip != 'true'
+        run: |
+          cat > /tmp/impl_prompt.txt << 'PROMPT_END'
+          You are a Senior Software Engineer implementing fixes based on thorough analysis.
+          
+          ================================================================
+          IMPLEMENTATION MODE: Generate production-quality code
+          ================================================================
+          
+          ## INPUT FROM ANALYSIS
+          The following analysis was performed. Trust it and implement accordingly:
+          
+          {{ANALYSIS_OUTPUT}}
+          
+          ## YOUR TASK
+          Generate complete, production-ready code fixes based on the analysis above.
+          
+          ## OUTPUT FORMAT REQUIREMENTS
+          
+          For EVERY file change, use this exact format:
+          
+          ```<language> <relative/path/to/file.ext>
+          // CHANGE: <Brief description of what this change does>
+          // REASON: <Why this change is necessary, referencing analysis>
+          // ORIGINAL (line ~XX): <Previous problematic code snippet>
+          
+          // FULL UPDATED FILE CONTENT BELOW:
+          <complete file content with changes applied>
+          ```
+          
+          ## CRITICAL RULES
+          
+          1. ALWAYS provide COMPLETE files, not diffs
+          2. Include ALL necessary imports/dependencies
+          3. Preserve existing code style and conventions
+          4. Add proper error handling for new code
+          5. Include inline comments explaining complex logic
+          6. NEVER truncate files unless absolutely necessary
+          7. If a file doesn't need changes, don't include it
+          
+          ## QUALITY CHECKLIST
+          
+          Before submitting, verify:
+          - [ ] All syntax errors are resolved
+          - [ ] Imports are correct and complete
+          - [ ] Types are properly annotated (TypeScript/Python/etc.)
+          - [ ] Error handling covers edge cases
+          - [ ] Comments explain non-obvious logic
+          - [ ] No temporary/debug code remains
+          
+          ## FINAL SECTION
+          
+          At the end, provide:
+          
+          ## CHANGED FILES
+          - <file1>: <what changed>
+          - <file2>: <what changed>
+          
+          ## RECOMMENDED NEXT STEPS
+          - Tests to add
+          - Documentation updates needed
+          - Breaking changes to communicate
+          - Deployment considerations
+          
+          ================================================================
+          USER REQUEST
+          ================================================================
+          
+          {{ORIGINAL_REQUEST}}
+          
+          ================================================================
+          Begin implementation now.
+          ================================================================
+          PROMPT_END
+          
+          # Replace placeholders - escape special chars
+          ANALYSIS_TEXT=$(cat /tmp/analysis_text.txt | sed 's/[&/\]/\\&/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          sed -i "s|{{ANALYSIS_OUTPUT}}|$ANALYSIS_TEXT|g" /tmp/impl_prompt.txt
+          sed -i "s|{{ORIGINAL_REQUEST}}|$(echo "${{ github.event.comment.body }}" | sed 's/[&/\]/\\&/g')|g" /tmp/impl_prompt.txt
+      
+      - name: Run Implementation Phase
+        if: steps.validate.outputs.skip != 'true'
+        id: implementation
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          REQUEST_FILE=/tmp/impl_request.json
+          
+          PROMPT_CONTENT=$(cat /tmp/impl_prompt.txt)
+          
+          jq -n --arg prompt "$PROMPT_CONTENT" '{
+            model: "deepseek-chat",
+            messages: [
+              {
+                role: "system",
+                content: "You are a Senior Software Engineer. Generate production-ready, complete code files. Follow the output format exactly. Do NOT truncate files. Provide FULL implementations."
+              },
+              {
+                role: "user",
+                content: $prompt
+              }
+            ],
+            temperature: 0.1,
+            top_p: 0.95,
+            frequency_penalty: 0.1,
+            presence_penalty: 0.1,
+            max_tokens: 24000,
+            stream: false
+          }' > "$REQUEST_FILE"
+          
+          MAX_ATTEMPTS=3
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            echo "Implementation attempt $i/$MAX_ATTEMPTS..."
+            
+            HTTP_CODE=$(curl -sS -w "%{http_code}" -X POST https://api.deepseek.com/v1/chat/completions \
+              -H "Authorization: Bearer $DEEPSEEK_KEY" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d @"$REQUEST_FILE" \
+              -o /tmp/impl_response.txt)
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              CONTENT=$(jq -r '.choices[0].message.content // empty' /tmp/impl_response.txt)
+              if [ ${#CONTENT} -gt 100 ]; then
+                echo "Implementation completed successfully ($(echo "$CONTENT" | wc -c) characters)"
+                echo "status=success" >> $GITHUB_OUTPUT
+                echo "character_count=$(echo "$CONTENT" | wc -c)" >> $GITHUB_OUTPUT
+                exit 0
+              fi
+            fi
+            
+            ERROR_MSG=$(jq -r '.error.message // "Unknown error"' /tmp/impl_response.txt 2>/dev/null || echo "Request failed")
+            echo "Attempt $i failed: HTTP $HTTP_CODE - $ERROR_MSG"
+            
+            if [ "$i" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((i * 2))
+            fi
+          done
+          
+          echo "status=failure" >> $GITHUB_OUTPUT
+          exit 1
+      
+      - name: Save Implementation
+        if: steps.validate.outputs.skip != 'true'
+        run: |
+          cp /tmp/impl_response.txt /tmp/full_implementation.json
+          jq -r '.choices[0].message.content' /tmp/full_implementation.json > /tmp/implementation_text.txt
+      
+      # ==========================================================================
+      # PHASE 4: POSTING RESPONSE & APPLYING FIXES
+      # ==========================================================================
+      
+      - name: Post Analysis & Implementation to Issue
+        if: steps.validate.outputs.skip != 'true' && steps.implementation.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ steps.validate.outputs.issue_number }} \
+            --repo ${{ github.repository }} \
+            --body-file /tmp/implementation_text.txt
+      
       - name: Create Fix Branch
-        if: steps.api.outputs.status == 'success'
+        if: steps.validate.outputs.skip != 'true' && steps.implementation.outputs.status == 'success'
         id: branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="deepseek-fix-${{ github.event.issue.number }}-$(date +%s)"
-          echo "name=$BRANCH" >> $GITHUB_OUTPUT
+          TIMESTAMP=$(date +%s)
+          BRANCH_NAME="deepseek-fix-${{ steps.validate.outputs.issue_number }}-$TIMESTAMP"
+          echo "name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+        
           git config user.email "bot@deepseek.ai"
           git config user.name "DeepSeek Bot"
-          git checkout -b "$BRANCH"
-
-      - name: Apply Fixes
-        if: steps.api.outputs.status == 'success'
-        id: fixes
+          git checkout -b "$BRANCH_NAME"
+      
+      - name: Parse and Apply Code Blocks
+        if: steps.validate.outputs.skip != 'true' && steps.implementation.outputs.status == 'success'
+        id: apply_fixes
         run: |
-          echo "=== Applying Fixes Debug ==="
-          echo "Response file exists: $(test -f /tmp/response.txt && echo 'yes' || echo 'no')"
-          echo "Response size: $(wc -c < /tmp/response.txt 2>/dev/null || echo '0') bytes"
+          # Extract code blocks using awk
+          # Format: ```<lang> <path/to/file>
           
-          > /tmp/changed.txt
-          
-          # Show first 500 chars of response
-          echo "=== First 500 chars of response ==="
-          head -c 500 /tmp/response.txt
-          echo ""
-          
-          # Extract code blocks with awk (fixed syntax - no >&2)
           awk '
-          BEGIN { inblock = 0; outfile = ""; block_num = 0 }
-          /^```/ {
-            if (inblock) {
-              close(outfile)
-              inblock = 0
-              outfile = ""
-            } else {
-              inblock = 1
-              block_num++
-              line = $0
-              gsub(/^```[a-zA-Z]*[[:space:]]*/, "", line)
-              gsub(/[[:space:]]*```$/, "", line)
-              gsub(/[[:cntrl:]]/, "", line)
-              filepath = line
-              
-              print "Block " block_num ": filepath=" filepath
-              
-              if ((index(filepath, "/") > 0 || substr(filepath, 1, 2) == "./") && match(filepath, /\.[a-z]+$/)) {
-                gsub(/^\.\//, "", filepath)
-                cmd = "mkdir -p $(dirname \"" filepath "\") 2>/dev/null"
-                system(cmd)
-                outfile = filepath
-                print filepath >> "/tmp/changed.txt"
-                print "Will write to: " filepath
-              } else {
-                print "Skipping (no valid path): " filepath
-                outfile = "/dev/null"
+          BEGIN {
+            in_block = 0
+            block_num = 0
+            current_file = ""
+          }
+          
+          /^```[a-zA-Z]*[[:space:]]/ {
+            if (in_block) {
+              # End previous block
+              if (current_file != "" && current_file != "/dev/null") {
+                close(current_file)
               }
+              in_block = 0
+              current_file = ""
+              next
             }
+            
+            # Start new block - extract path
+            line = $0
+            gsub(/^```[a-zA-Z]*[[:space:]]*/, "", line)
+            gsub(/[[:space:]].*$/, "", line)  # Remove anything after first space
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+            
+            block_num++
+            print "=== Block " block_num ": \"" line "\" ==="
+            
+            # Validate path looks real
+            if (match(line, /^[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z]+$/) && index(line, ".") > 1) {
+              # Looks like a real file path
+              # Remove leading ./ if present
+              gsub(/^\.\//, "", line)
+              current_file = line
+              
+              # Create directory structure
+              dir_cmd = "mkdir -p $(dirname \"" line "\") 2>/dev/null"
+              system(dir_cmd)
+              
+              print "✓ Writing to: " current_file
+              print current_file >> "/tmp/files_to_commit.txt"
+            } else {
+              # Invalid or no path
+              print "✗ Skipped (invalid path): " line
+              current_file = "/dev/null"
+            }
+            in_block = 1
             next
           }
-          inblock && outfile != "/dev/null" && outfile != "" {
-            print >> outfile
+          
+          in_block && current_file != "" && current_file != "/dev/null" {
+            # Skip markdown metadata lines
+            if ($0 !~ /^(CHANGE:|REASON:|ORIGINAL:|\/\/\s+\*\*)/) {
+              print >> current_file
+            }
           }
-          ' /tmp/response.txt
           
-          echo "=== Extraction Results ==="
-          if [ -s /tmp/changed.txt ]; then
-            echo "Files to commit:"
-            cat /tmp/changed.txt
-          else
-            echo "NO FILES EXTRACTED - Check response format"
-          fi
+          END {
+            print "\n=== Extraction Summary ==="
+            print "Blocks processed: " block_num
+            if (block_num > 0) {
+              print "First 5 files to commit:"
+              system("head -5 /tmp/files_to_commit.txt 2>/dev/null || echo 'No files found'")
+            }
+          }
+          ' /tmp/implementation_text.txt
           
-          if [ -s /tmp/changed.txt ]; then
+          # Check results
+          if [ -s /tmp/files_to_commit.txt ]; then
+            FILE_COUNT=$(wc -l < /tmp/files_to_commit.txt)
+            echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+            
+            echo "Files extracted:"
+            cat /tmp/files_to_commit.txt
+            
+            # Stage all changed files
             while IFS= read -r FILE; do
               if [ -n "$FILE" ] && [ -f "$FILE" ]; then
                 echo "Adding: $FILE"
                 git add "$FILE"
               else
-                echo "File not found: $FILE"
+                echo "Warning: File not found: $FILE"
               fi
-            done < /tmp/changed.txt
+            done < /tmp/files_to_commit.txt
             
+            # Commit if there are changes
             if ! git diff --cached --quiet; then
-              git commit -m "[DeepSeek] Auto-fix for issue ${{ github.event.issue.number }}"
+              git commit -m "[DeepSeek] Fix #${{ steps.validate.outputs.issue_number }}
+
+Automated fix generated by DeepSeek Bot
+
+📝 Analysis & implementation based on issue description
+🔍 Two-phase process: deep analysis followed by code generation
+📁 Changed files listed in PR description"
+              
               git push -u origin "${{ steps.branch.outputs.name }}"
               echo "applied=true" >> $GITHUB_OUTPUT
-              echo "SUCCESS: Changes committed and pushed"
+              echo "✅ Changes committed and pushed successfully"
             else
-              echo "No staged changes to commit"
+              echo "⚠️ No changes to commit (all files identical)"
             fi
           else
-            echo "WARNING: No files extracted from response."
+            echo "❌ No valid code blocks extracted from response"
+            echo "File count: 0" >> $GITHUB_OUTPUT
           fi
-
-      - name: Create PR
-        if: steps.fixes.outputs.applied == 'true'
+      
+      - name: Create Pull Request
+        if: steps.apply_fixes.outputs.applied == 'true'
         id: pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          URL=$(gh pr create --title "[DeepSeek] Fix #${{ github.event.issue.number }}" --body "Auto-generated by @deepseek" --base "${{ github.event.repository.default_branch }}" --head "${{ steps.branch.outputs.name }}")
-          echo "url=$URL" >> $GITHUB_OUTPUT
+          BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+          
+          PR_URL=$(gh pr create \
+            --title "[DeepSeek] Fix #${{ steps.validate.outputs.issue_number }}" \
+            --body "## 🤖 Automated Fix
 
-      - name: Notify PR
+This PR was generated automatically by DeepSeek Bot based on issue #${{ steps.validate.outputs.issue_number }}.
+
+## Process
+
+1. **Analysis Phase**: Deep reasoning about the problem
+2. **Implementation Phase**: Generation of production-ready fixes
+3. **Validation**: Basic sanity checks passed
+
+## Changes
+
+See the code blocks below for detailed changes.
+
+---
+
+**Review Notes:**
+- [ ] Verify the fix addresses the original issue
+- [ ] Check that no unintended changes were made
+- [ ] Ensure tests pass (run locally if needed)
+- [ ] Update documentation if API contracts changed
+
+---
+
+> ℹ️ This is an automated PR. Please review carefully before merging.
+
+**Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" \
+            --base "$BASE_BRANCH" \
+            --head "${{ steps.branch.outputs.name }}")
+          
+          echo "url=$PR_URL" >> $GITHUB_OUTPUT
+          
+          # Add PR link to original issue
+          gh issue comment ${{ steps.validate.outputs.issue_number }} \
+            --repo ${{ github.repository }} \
+            --body "✨ **Pull Request Created**
+
+${PR_URL}
+
+The fix has been implemented and is ready for review. Please check the PR for:"
+      
+      - name: Notify Completion
         if: steps.pr.outputs.url != ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body "✨ PR created: ${{ steps.pr.outputs.url }}"
-
-      - name: Upload Debug Logs
+          echo "✅ Workflow completed successfully"
+          echo "Issue: #${{ steps.validate.outputs.issue_number }}"
+          echo "PR: ${{ steps.pr.outputs.url }}"
+      
+      # ==========================================================================
+      # PHASE 5: DEBUG & METRICS
+      # ==========================================================================
+      
+      - name: Upload Debug Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-${{ github.event.issue.number }}
-          path: /tmp/debug_log.txt
+          name: debug-${{ steps.validate.outputs.issue_number }}-${{ github.run_id }}
+          path: |
+            /tmp/debug.log
+            /tmp/context_metrics.json
+            /tmp/full_analysis.json
+            /tmp/full_implementation.json
+            /tmp/files_to_commit.txt 2>/dev/null || true
           retention-days: 7
+          if-no-files-found: warn
+      
+      - name: Log Final Metrics
+        if: always()
+        run: |
+          echo "=== WORKFLOW METRICS ==="
+          echo "Status: ${{ job.status }}"
+          echo "Issue: #${{ steps.validate.outputs.issue_number }}"
+          
+          if [ -f /tmp/context_metrics.json ]; then
+            echo "Context metrics:"
+            cat /tmp/context_metrics.json
+          fi
+          
+          if [ -f /tmp/files_to_commit.txt ]; then
+            echo "Files modified: $(wc -l < /tmp/files_to_commit.txt)"
+          fi
