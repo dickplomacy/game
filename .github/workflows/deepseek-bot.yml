@@ -60,7 +60,7 @@ jobs:
             exit 0
           fi
 
-          CLEAN_COMMENT=$(echo "$COMMENT" | awk '{gsub(/@[a-zA-Z0-9_-]*/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, "")}')
+          CLEAN_COMMENT=$(echo "$COMMENT" | sed 's/@[a-zA-Z0-9_-]*//g' | xargs || echo "")
           if [ -z "$CLEAN_COMMENT" ] && [ "${#COMMENT}" -lt 20 ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
             echo "::notice::Bare mention without enough context, skipping"
@@ -93,11 +93,13 @@ jobs:
             jq \
             curl \
             grep \
+            sed \
             coreutils \
             git \
             nodejs \
             npm
 
+          # awk is pre-installed on ubuntu-latest, no need to install
           echo "✓ Dependencies installed"
 
       # ==========================================================================
@@ -123,10 +125,11 @@ jobs:
           echo "STARTING MAXIMUM CONTEXT COLLECTION" >> "$DEBUG_FILE"
           echo "Repository: ${{ github.repository }}" >> "$DEBUG_FILE"
           echo "Issue/PR: #${{ github.event.issue.number || github.event.pull_request.number }}" >> "$DEBUG_FILE"
+          echo "Comment: ${{ github.event.comment.body || github.event.review.body }}" >> "$DEBUG_FILE"
           echo "========================================" >> "$DEBUG_FILE"
 
-          # STEP 1: EXTRACT FILE PATHS FROM COMMENT
-          echo "=== STEP 1: Parsing comment for file paths ===" >> "$DEBUG_FILE"
+          # STEP 1: EXTRACT FILE PATHS FROM ERROR LOGS IN COMMENT
+          echo "=== STEP 1: Parsing error logs for file paths ===" >> "$DEBUG_FILE"
 
           COMMENT_TEXT="${{ github.event.comment.body || github.event.review.body }}"
 
@@ -265,8 +268,48 @@ jobs:
           echo "--- END RECENTLY MODIFIED ---" >> "$CONTEXT_FILE"
           echo "" >> "$CONTEXT_FILE"
 
-          # STEP 5: DEPENDENCY MANIFESTS
-          echo "=== STEP 5: Collecting dependency manifests ===" >> "$DEBUG_FILE"
+          # STEP 5: KEYWORD-BASED DISCOVERY
+          echo "=== STEP 5: Keyword-based file discovery ===" >> "$DEBUG_FILE"
+
+          KEYWORDS=$(echo "$COMMENT_TEXT" | \
+            tr '[:upper:]' '[:lower:]' | \
+            sed 's/@[a-zA-Z0-9_-]*//g' | \
+            sed 's/[^a-z0-9]/ /g' | \
+            tr -s ' ' | \
+            grep -oE '\b[a-z]{4,}\b' | sort -u | head -15) || true
+
+          echo "Keywords extracted: $KEYWORDS" >> "$DEBUG_FILE"
+
+          for KW in $KEYWORDS; do
+            rg --files 2>/dev/null | grep -i "$KW" | head -10 | while read -r FILE; do
+              if [ -f "$FILE" ] && ! grep -q "^--- FILE: $FILE ---$" "$CONTEXT_FILE" 2>/dev/null; then
+                FILE_SIZE=$(wc -c < "$FILE" 2>/dev/null || echo "0")
+                if [ "$FILE_SIZE" -lt 200000 ]; then
+                  echo "--- FILE: $FILE (filename keyword: $KW) ---" >> "$CONTEXT_FILE"
+                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                  echo "--- END FILE: $FILE ---" >> "$CONTEXT_FILE"
+                  echo "" >> "$CONTEXT_FILE"
+                fi
+              fi
+            done || true
+
+            rg -l "$KW" --type js --type ts --type py --type go --type java \
+              --glob '!.git/*' --glob '!node_modules/*' --glob '!vendor/*' \
+              --glob '!dist/*' --glob '!build/*' 2>/dev/null | head -10 | while read -r FILE; do
+              if [ -f "$FILE" ] && ! grep -q "^--- FILE: $FILE ---$" "$CONTEXT_FILE" 2>/dev/null; then
+                FILE_SIZE=$(wc -c < "$FILE" 2>/dev/null || echo "0")
+                if [ "$FILE_SIZE" -lt 200000 ]; then
+                  echo "--- FILE: $FILE (content keyword: $KW) ---" >> "$CONTEXT_FILE"
+                  cat "$FILE" >> "$CONTEXT_FILE" 2>/dev/null || true
+                  echo "--- END FILE: $FILE ---" >> "$CONTEXT_FILE"
+                  echo "" >> "$CONTEXT_FILE"
+                fi
+              fi
+            done || true
+          done
+
+          # STEP 6: DEPENDENCY MANIFESTS
+          echo "=== STEP 6: Collecting dependency manifests ===" >> "$DEBUG_FILE"
 
           if [ -f "package-lock.json" ] || [ -f "yarn.lock" ]; then
             echo "--- DEPENDENCIES (package-lock first 500 lines) ---" >> "$CONTEXT_FILE"
@@ -302,7 +345,7 @@ jobs:
           fi
 
       # ==========================================================================
-      # PHASE 2: BUILD PROMPTS (NO SED - using heredoc variable expansion)
+      # PHASE 2: BUILD PROMPTS
       # ==========================================================================
 
       - name: Save Original Request
@@ -331,31 +374,29 @@ jobs:
             METRICS_JSON=$(cat /tmp/context_metrics.json)
           fi
 
-          EVENT_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
-
-          cat > /tmp/analysis_prompt.txt << PROMPT_EOF
+          cat > /tmp/analysis_prompt.txt << 'PROMPT_EOF'
           ================================================
           YOU ARE A SENIOR SOFTWARE ENGINEER ANALYZING AN ISSUE
           ================================================
 
           ## CONTEXT METRICS
-          ${METRICS_JSON}
+          {{METRICS_JSON}}
 
           ## REPOSITORY INFORMATION
-          Repository: ${{ github.repository }}
-          Issue/PR Number: ${EVENT_NUM}
-          Event Type: ${{ github.event_name }}
+          Repository: {{REPO}}
+          Issue/PR Number: {{ISSUE_NUM}}
+          Event Type: {{EVENT_TYPE}}
 
           ## USER REQUEST
           """
-          ${REQUEST_TEXT}
+          {{REQUEST}}
           """
 
           ================================================
           ACTUAL CODEBASE (FROM THE REPOSITORY)
           ================================================
 
-          ${CODE_CONTEXT}
+          {{CODE_CONTEXT}}
 
           ================================================
           YOUR TASK
@@ -408,6 +449,19 @@ jobs:
           Begin your detailed analysis now.
           PROMPT_EOF
 
+          # Replace placeholders using temp files to avoid sed conflicts
+          echo "${METRICS_JSON}" > /tmp/metrics_temp.txt
+          sed 's/[&/\]/\\&/g' /tmp/metrics_temp.txt > /tmp/metrics_escaped.txt || true
+          sed -i "s|{{METRICS_JSON}}|$(cat /tmp/metrics_escaped.txt)|g" /tmp/analysis_prompt.txt
+
+          sed -i "s|{{REPO}}|${{ github.repository }}|g" /tmp/analysis_prompt.txt
+          sed -i "s|{{ISSUE_NUM}}|${{ github.event.issue.number || github.event.pull_request.number }}|g" /tmp/analysis_prompt.txt
+          sed -i "s|{{EVENT_TYPE}}|${{ github.event_name }}|g" /tmp/analysis_prompt.txt
+
+          # Escape REQUEST safely
+          REQUEST_ESCAPED=$(cat /tmp/original_request.txt | sed 's/[&/\]/\\&/g' | tr -d '\n')
+          sed -i "s|{{REQUEST}}|${REQUEST_ESCAPED}|g" /tmp/analysis_prompt.txt
+
           echo "✓ Analysis prompt built ($(wc -c < /tmp/analysis_prompt.txt) bytes)"
           echo "prompt_size=$(wc -c < /tmp/analysis_prompt.txt)" >> $GITHUB_OUTPUT
 
@@ -427,19 +481,19 @@ jobs:
             REQUEST_TEXT=$(cat /tmp/original_request.txt)
           fi
 
-          cat > /tmp/impl_prompt.txt << PROMPT_EOF
+          cat > /tmp/impl_prompt.txt << 'PROMPT_EOF'
           ================================================
           YOU ARE IMPLEMENTING FIXES BASED ON ANALYSIS
           ================================================
 
           ## PREVIOUS ANALYSIS (Trust this - it was thorough)
           """
-          ${ANALYSIS_RESULT}
+          {{ANALYSIS_RESULT}}
           """
 
           ## ORIGINAL USER REQUEST
           """
-          ${REQUEST_TEXT}
+          {{REQUEST}}
           """
 
           ================================================
@@ -452,14 +506,14 @@ jobs:
 
           Use EXACTLY this format for every changed file:
 
-          \`\`\`<language> <relative/path/to/file.ext>
+          ```<language> <relative/path/to/file.ext>
           // CHANGE: Brief 1-sentence description
           // REASON: Why this change (reference analysis section)
           // ORIGINAL: (line ~XX) <small snippet of problematic code>
 
           // FULL FILE CONTENT WITH FIXES APPLIED:
           <complete file content, DO NOT TRUNCATE>
-          \`\`\`
+          ```
 
           ## CRITICAL RULES (VIOLATION WILL BREAK THE FIX)
 
@@ -488,8 +542,8 @@ jobs:
           After all code blocks, add these sections:
 
           ## CHANGED FILES
-          - \`src/file1.js\`: One sentence describing changes
-          - \`src/file2.ts\`: One sentence describing changes
+          - `src/file1.js`: One sentence describing changes
+          - `src/file2.ts`: One sentence describing changes
 
           ## RECOMMENDED NEXT STEPS
           - Tests to add: [describe tests]
@@ -502,11 +556,19 @@ jobs:
           ================================================
           PROMPT_EOF
 
+          # Replace placeholders using temp files
+          echo "${ANALYSIS_RESULT}" > /tmp/analysis_temp.txt
+          ESCAPED_ANALYSIS=$(cat /tmp/analysis_temp.txt | sed 's/[&/\]/\\&/g' | tr -d '\n')
+          sed -i "s|{{ANALYSIS_RESULT}}|${ESCAPED_ANALYSIS}|g" /tmp/impl_prompt.txt
+
+          REQUEST_ESCAPED=$(cat /tmp/original_request.txt | sed 's/[&/\]/\\&/g' | tr -d '\n')
+          sed -i "s|{{REQUEST}}|${REQUEST_ESCAPED}|g" /tmp/impl_prompt.txt
+
           echo "✓ Implementation prompt built ($(wc -c < /tmp/impl_prompt.txt) bytes)"
           echo "prompt_size=$(wc -c < /tmp/impl_prompt.txt)" >> $GITHUB_OUTPUT
 
       # ==========================================================================
-      # PHASE 3: API CALLS (read prompt from file to avoid arg limits)
+      # PHASE 3: API CALLS
       # ==========================================================================
 
       - name: Run Analysis Phase
@@ -518,30 +580,30 @@ jobs:
           set -euo pipefail
 
           REQUEST_FILE="/tmp/analysis_request.json"
-          PROMPT_FILE="/tmp/analysis_prompt.txt"
+          PROMPT_CONTENT=$(cat /tmp/analysis_prompt.txt)
 
-          # Build JSON request - jq reads prompt directly from file (avoids shell arg limits)
-          cat > "$REQUEST_FILE" << REQEOF
-          {
-            "model": "deepseek-chat",
-            "messages": [
-              {
-                "role": "system",
-                "content": "You are a Principal Software Engineer with 15+ years of experience. Analyze problems THOROUGHLY. Show your reasoning. Think step-by-step before concluding."
-              },
-              {
-                "role": "user",
-                "content": $(jq -Rs '.' "$PROMPT_FILE")
-              }
-            ],
-            "temperature": 0.15,
-            "top_p": 0.9,
-            "max_tokens": 16000,
-            "stream": false
-          }
-          REQEOF
+          ESCAPED_PROMPT=$(printf '%s' "${PROMPT_CONTENT}" | jq -Rs '.')
 
-          echo "✓ Built analysis request ($(wc -c < "$REQUEST_FILE") bytes)"
+          jq -n \
+            --argjson prompt "${ESCAPED_PROMPT}" \
+            '{
+              model: "deepseek-chat",
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a Principal Software Engineer with 15+ years of experience. Analyze problems THOROUGHLY. Show your reasoning. Think step-by-step before concluding."
+                },
+                {
+                  role: "user",
+                  content: $prompt
+                }
+              ],
+              temperature: 0.15,
+              top_p: 0.9,
+              max_tokens: 16000,
+              stream: false
+            }' > "$REQUEST_FILE"
+
           echo "Sending analysis request..."
 
           MAX_ATTEMPTS=3
@@ -603,32 +665,32 @@ jobs:
           set -euo pipefail
 
           REQUEST_FILE="/tmp/impl_request.json"
-          PROMPT_FILE="/tmp/impl_prompt.txt"
+          PROMPT_CONTENT=$(cat /tmp/impl_prompt.txt)
 
-          # Build JSON request - jq reads prompt directly from file (avoids shell arg limits)
-          cat > "$REQUEST_FILE" << REQEOF
-          {
-            "model": "deepseek-chat",
-            "messages": [
-              {
-                "role": "system",
-                "content": "You are a Senior Software Engineer. Generate COMPLETE production-ready code files. Follow the output format EXACTLY. NEVER truncate files. Provide FULL implementations."
-              },
-              {
-                "role": "user",
-                "content": $(jq -Rs '.' "$PROMPT_FILE")
-              }
-            ],
-            "temperature": 0.1,
-            "top_p": 0.95,
-            "frequency_penalty": 0.1,
-            "presence_penalty": 0.1,
-            "max_tokens": 24000,
-            "stream": false
-          }
-          REQEOF
+          ESCAPED_PROMPT=$(printf '%s' "${PROMPT_CONTENT}" | jq -Rs '.')
 
-          echo "✓ Built implementation request ($(wc -c < "$REQUEST_FILE") bytes)"
+          jq -n \
+            --argjson prompt "${ESCAPED_PROMPT}" \
+            '{
+              model: "deepseek-chat",
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a Senior Software Engineer. Generate COMPLETE production-ready code files. Follow the output format EXACTLY. NEVER truncate files. Provide FULL implementations."
+                },
+                {
+                  role: "user",
+                  content: $prompt
+                }
+              ],
+              temperature: 0.1,
+              top_p: 0.95,
+              frequency_penalty: 0.1,
+              presence_penalty: 0.1,
+              max_tokens: 24000,
+              stream: false
+            }' > "$REQUEST_FILE"
+
           echo "Sending implementation request..."
 
           MAX_ATTEMPTS=3
@@ -812,7 +874,8 @@ jobs:
 
               ISSUE_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
 
-              FILES_LIST=$(cat /tmp/files_to_commit.txt | tr '\n' ' ' | tr -cd '[:alnum:]._/- ' | head -c 200)
+              # FIX: Use sed instead of tr to avoid range-order errors
+              FILES_LIST=$(cat /tmp/files_to_commit.txt | head -5 | sed ':a;N;$!ba;s/\n/, /g' | head -c 200)
               git commit -m "[DeepSeek] Fix #${ISSUE_NUM} Automated fix: Analysis then code generation. Files: ${FILES_LIST}"
 
               echo "✓ Commit created"
@@ -838,6 +901,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+
           echo "Posting response to issue #${{ github.event.issue.number || github.event.pull_request.number }}..."
 
           gh issue comment "${{ github.event.issue.number || github.event.pull_request.number }}" \
@@ -869,7 +934,7 @@ jobs:
             FILES_LIST="  - (none)"
           fi
 
-          # Write PR body using printf only (NO HEREDOCS)
+          # Write PR body using ONLY printf - NO HEREDOCS
           : > /tmp/pr_body.txt
           printf 'Automated fix generated by DeepSeek Bot based on issue %s\n' "${ISSUE_NUM}" >> /tmp/pr_body.txt
           printf '\n' >> /tmp/pr_body.txt
@@ -903,8 +968,8 @@ jobs:
           if [ -n "${PR_URL}" ] && [ "${PR_URL}" != "true" ]; then
             echo "url=${PR_URL}" >> $GITHUB_OUTPUT
             echo "PR created successfully: ${PR_URL}"
-
-            # Build notification message using printf only
+            
+            # Build notification message using ONLY printf - NO HEREDOCS
             : > /tmp/notify_msg.txt
             printf 'Pull Request Created:\n' >> /tmp/notify_msg.txt
             printf '\n' >> /tmp/notify_msg.txt
@@ -913,7 +978,7 @@ jobs:
             printf 'The fix has been implemented and is ready for review.\n' >> /tmp/notify_msg.txt
             printf '\n' >> /tmp/notify_msg.txt
             printf 'Files changed:\n' >> /tmp/notify_msg.txt
-
+            
             if [ -f /tmp/files_to_commit.txt ] && [ -s /tmp/files_to_commit.txt ]; then
               cat /tmp/files_to_commit.txt | head -10 | while read -r f; do
                 printf '  - %s\n' "$f" >> /tmp/notify_msg.txt
@@ -925,9 +990,58 @@ jobs:
             gh issue comment "${ISSUE_NUM}" \
               --repo "${{ github.repository }}" \
               --body-file /tmp/notify_msg.txt 2>/dev/null || true
-
+            
             echo "Notification posted to issue #${ISSUE_NUM}"
           else
             echo "PR creation failed or URL not captured"
             echo "url=FAILED" >> $GITHUB_OUTPUT
           fi
+
+      - name: Notify Completion
+        if: always() && steps.validate.outputs.skip != 'true'
+        run: |
+          echo "==================================="
+          echo "WORKFLOW COMPLETION SUMMARY"
+          echo "==================================="
+          echo "Job Status: ${{ job.status }}"
+          echo "Issue/PR: #${{ github.event.issue.number || github.event.pull_request.number }}"
+
+          if [ -f /tmp/context_metrics.json ]; then
+            echo "Context Metrics:"
+            cat /tmp/context_metrics.json
+          fi
+
+          if [ -f /tmp/files_to_commit.txt ] && [ -s /tmp/files_to_commit.txt ]; then
+            echo "Files Modified: $(wc -l < /tmp/files_to_commit.txt)"
+          fi
+
+          echo "==================================="
+
+      # ==========================================================================
+      # PHASE 5: DEBUG ARTIFACTS
+      # ==========================================================================
+
+      - name: Upload Debug Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-debug-${{ github.run_id }}-${{ github.event.issue.number || github.event.pull_request.number }}
+          path: |
+            /tmp/debug.log
+            /tmp/context_metrics.json
+            /tmp/code_context.txt
+            /tmp/analysis_response.txt
+            /tmp/implementation_response.txt
+            /tmp/files_to_commit.txt
+            /tmp/extraction_log.txt
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload Large Context as Separate Artifact
+        if: steps.context.outputs.bytes != '' && steps.context.outputs.bytes > 500000
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-context-${{ github.run_id }}
+          path: /tmp/code_context.txt
+          retention-days: 7
+          compression-level: 9
