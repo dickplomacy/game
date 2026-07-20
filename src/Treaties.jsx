@@ -475,3 +475,13 @@ export default function Treaties({ gameCode, myPower, isAdmin, year, phase, pass
     </div>
   );
 }
+import { useState } from 'react';
+import {
+  collection,
+  addDoc, updateDoc, deleteDoc, doc, serverTimestamp,
+} from 'firebase/firestore';
+import { db } from './firebase';
+import winCondition from './winCondition';       // ← whole module import
+const { POWERS } = winCondition;                  // ← destructure POWERS
+import territories from './territories.json';
+// … rest unchanged

@@ -1397,3 +1397,12 @@ function FullOrderHistory({ history, onClose }) {
     </div>
   );
 }
+import { useEffect, useRef, useState } from "react";
+import DipMap from "./DipMap";
+import territories from "./territories.json";
+import { resolve } from "./resolver";
+import { submitOrders, unsubmitOrders, saveDraftOrders, writeResolution, submitRetreatOrders, submitWinterOrders, writeWinterResolution, setCountryLock, onTreatiesSnapshot } from "./gameService";
+import winCondition from "./winCondition";        // ← whole module import
+const { checkWinner, POWERS, SC_IDS } = winCondition; // ← destructure
+import { HOME_SCS, computeAdjustments, buildWinterData, getAvailableBuildSCs, ownersFromUnits, lastOccupiedFromUnits } from "./adjustments";
+// … rest unchanged
