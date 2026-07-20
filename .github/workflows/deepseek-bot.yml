@@ -60,7 +60,6 @@ jobs:
             exit 0
           fi
 
-          # Use awk instead of sed for safe string manipulation
           CLEAN_COMMENT=$(echo "$COMMENT" | awk '{gsub(/@[a-zA-Z0-9_-]*/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, "")}')
           if [ -z "$CLEAN_COMMENT" ] && [ "${#COMMENT}" -lt 20 ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -303,7 +302,7 @@ jobs:
           fi
 
       # ==========================================================================
-      # PHASE 2: BUILD PROMPTS (NO SED)
+      # PHASE 2: BUILD PROMPTS (NO SED - using heredoc variable expansion)
       # ==========================================================================
 
       - name: Save Original Request
@@ -317,7 +316,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Read all content into variables
           CODE_CONTEXT=""
           if [ -f /tmp/code_context.txt ]; then
             CODE_CONTEXT=$(cat /tmp/code_context.txt)
@@ -335,7 +333,6 @@ jobs:
 
           EVENT_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
 
-          # Build prompt using UNQUOTED heredoc for variable expansion (no sed needed!)
           cat > /tmp/analysis_prompt.txt << PROMPT_EOF
           ================================================
           YOU ARE A SENIOR SOFTWARE ENGINEER ANALYZING AN ISSUE
@@ -420,7 +417,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Read analysis result (if available from previous run)
           ANALYSIS_RESULT=""
           if [ -f /tmp/analysis_response.txt ]; then
             ANALYSIS_RESULT=$(cat /tmp/analysis_response.txt)
@@ -431,7 +427,6 @@ jobs:
             REQUEST_TEXT=$(cat /tmp/original_request.txt)
           fi
 
-          # Build implementation prompt using UNQUOTED heredoc (no sed needed!)
           cat > /tmp/impl_prompt.txt << PROMPT_EOF
           ================================================
           YOU ARE IMPLEMENTING FIXES BASED ON ANALYSIS
@@ -457,14 +452,14 @@ jobs:
 
           Use EXACTLY this format for every changed file:
 
-          \`<language> <relative/path/to/file.ext>
+          \`\`\`<language> <relative/path/to/file.ext>
           // CHANGE: Brief 1-sentence description
           // REASON: Why this change (reference analysis section)
           // ORIGINAL: (line ~XX) <small snippet of problematic code>
 
           // FULL FILE CONTENT WITH FIXES APPLIED:
           <complete file content, DO NOT TRUNCATE>
-          \`
+          \`\`\`
 
           ## CRITICAL RULES (VIOLATION WILL BREAK THE FIX)
 
@@ -511,7 +506,7 @@ jobs:
           echo "prompt_size=$(wc -c < /tmp/impl_prompt.txt)" >> $GITHUB_OUTPUT
 
       # ==========================================================================
-      # PHASE 3: API CALLS
+      # PHASE 3: API CALLS (read prompt from file to avoid arg limits)
       # ==========================================================================
 
       - name: Run Analysis Phase
@@ -523,31 +518,30 @@ jobs:
           set -euo pipefail
 
           REQUEST_FILE="/tmp/analysis_request.json"
-          PROMPT_CONTENT=$(cat /tmp/analysis_prompt.txt)
+          PROMPT_FILE="/tmp/analysis_prompt.txt"
 
-          # Use jq to properly escape the prompt for JSON
-          ESCAPED_PROMPT=$(printf '%s' "${PROMPT_CONTENT}" | jq -Rs '.')
+          # Build JSON request - jq reads prompt directly from file (avoids shell arg limits)
+          cat > "$REQUEST_FILE" << REQEOF
+          {
+            "model": "deepseek-chat",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Principal Software Engineer with 15+ years of experience. Analyze problems THOROUGHLY. Show your reasoning. Think step-by-step before concluding."
+              },
+              {
+                "role": "user",
+                "content": $(jq -Rs '.' "$PROMPT_FILE")
+              }
+            ],
+            "temperature": 0.15,
+            "top_p": 0.9,
+            "max_tokens": 16000,
+            "stream": false
+          }
+          REQEOF
 
-          jq -n \
-            --argjson prompt "${ESCAPED_PROMPT}" \
-            '{
-              model: "deepseek-chat",
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a Principal Software Engineer with 15+ years of experience. Analyze problems THOROUGHLY. Show your reasoning. Think step-by-step before concluding."
-                },
-                {
-                  role: "user",
-                  content: $prompt
-                }
-              ],
-              temperature: 0.15,
-              top_p: 0.9,
-              max_tokens: 16000,
-              stream: false
-            }' > "$REQUEST_FILE"
-
+          echo "✓ Built analysis request ($(wc -c < "$REQUEST_FILE") bytes)"
           echo "Sending analysis request..."
 
           MAX_ATTEMPTS=3
@@ -609,32 +603,32 @@ jobs:
           set -euo pipefail
 
           REQUEST_FILE="/tmp/impl_request.json"
-          PROMPT_CONTENT=$(cat /tmp/impl_prompt.txt)
+          PROMPT_FILE="/tmp/impl_prompt.txt"
 
-          ESCAPED_PROMPT=$(printf '%s' "${PROMPT_CONTENT}" | jq -Rs '.')
+          # Build JSON request - jq reads prompt directly from file (avoids shell arg limits)
+          cat > "$REQUEST_FILE" << REQEOF
+          {
+            "model": "deepseek-chat",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a Senior Software Engineer. Generate COMPLETE production-ready code files. Follow the output format EXACTLY. NEVER truncate files. Provide FULL implementations."
+              },
+              {
+                "role": "user",
+                "content": $(jq -Rs '.' "$PROMPT_FILE")
+              }
+            ],
+            "temperature": 0.1,
+            "top_p": 0.95,
+            "frequency_penalty": 0.1,
+            "presence_penalty": 0.1,
+            "max_tokens": 24000,
+            "stream": false
+          }
+          REQEOF
 
-          jq -n \
-            --argjson prompt "${ESCAPED_PROMPT}" \
-            '{
-              model: "deepseek-chat",
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a Senior Software Engineer. Generate COMPLETE production-ready code files. Follow the output format EXACTLY. NEVER truncate files. Provide FULL implementations."
-                },
-                {
-                  role: "user",
-                  content: $prompt
-                }
-              ],
-              temperature: 0.1,
-              top_p: 0.95,
-              frequency_penalty: 0.1,
-              presence_penalty: 0.1,
-              max_tokens: 24000,
-              stream: false
-            }' > "$REQUEST_FILE"
-
+          echo "✓ Built implementation request ($(wc -c < "$REQUEST_FILE") bytes)"
           echo "Sending implementation request..."
 
           MAX_ATTEMPTS=3
@@ -818,7 +812,6 @@ jobs:
 
               ISSUE_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
 
-              # Safe file list for commit message (remove special chars)
               FILES_LIST=$(cat /tmp/files_to_commit.txt | tr '\n' ' ' | tr -cd '[:alnum:]._/- ' | head -c 200)
               git commit -m "[DeepSeek] Fix #${ISSUE_NUM} Automated fix: Analysis then code generation. Files: ${FILES_LIST}"
 
@@ -910,7 +903,7 @@ jobs:
           if [ -n "${PR_URL}" ] && [ "${PR_URL}" != "true" ]; then
             echo "url=${PR_URL}" >> $GITHUB_OUTPUT
             echo "PR created successfully: ${PR_URL}"
-            
+
             # Build notification message using printf only
             : > /tmp/notify_msg.txt
             printf 'Pull Request Created:\n' >> /tmp/notify_msg.txt
@@ -920,7 +913,7 @@ jobs:
             printf 'The fix has been implemented and is ready for review.\n' >> /tmp/notify_msg.txt
             printf '\n' >> /tmp/notify_msg.txt
             printf 'Files changed:\n' >> /tmp/notify_msg.txt
-            
+
             if [ -f /tmp/files_to_commit.txt ] && [ -s /tmp/files_to_commit.txt ]; then
               cat /tmp/files_to_commit.txt | head -10 | while read -r f; do
                 printf '  - %s\n' "$f" >> /tmp/notify_msg.txt
@@ -932,7 +925,7 @@ jobs:
             gh issue comment "${ISSUE_NUM}" \
               --repo "${{ github.repository }}" \
               --body-file /tmp/notify_msg.txt 2>/dev/null || true
-            
+
             echo "Notification posted to issue #${ISSUE_NUM}"
           else
             echo "PR creation failed or URL not captured"
