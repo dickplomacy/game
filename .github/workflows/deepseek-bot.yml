@@ -39,14 +39,15 @@ jobs:
 
       - name: Validate Request
         id: validate
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          REVIEW_BODY: ${{ github.event.review.body }}
         run: |
           set -euo pipefail
 
-          COMMENT=""
-          if [ -n "${{ github.event.comment.body }}" ]; then
-            COMMENT="${{ github.event.comment.body }}"
-          elif [ -n "${{ github.event.review.body }}" ]; then
-            COMMENT="${{ github.event.review.body }}"
+          COMMENT="${COMMENT_BODY:-}"
+          if [ -z "$COMMENT" ] && [ -n "${REVIEW_BODY:-}" ]; then
+            COMMENT="${REVIEW_BODY}"
           fi
 
           echo "=== Validation Debug ==="
@@ -111,6 +112,7 @@ jobs:
         id: context
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_BODY: ${{ github.event.comment.body || github.event.review.body }}
         run: |
           set -euo pipefail
 
@@ -125,13 +127,13 @@ jobs:
           echo "STARTING MAXIMUM CONTEXT COLLECTION" >> "$DEBUG_FILE"
           echo "Repository: ${{ github.repository }}" >> "$DEBUG_FILE"
           echo "Issue/PR: #${{ github.event.issue.number || github.event.pull_request.number }}" >> "$DEBUG_FILE"
-          echo "Comment: ${{ github.event.comment.body || github.event.review.body }}" >> "$DEBUG_FILE"
+          echo "Comment: ${COMMENT_BODY}" >> "$DEBUG_FILE"
           echo "========================================" >> "$DEBUG_FILE"
 
           # STEP 1: EXTRACT FILE PATHS FROM ERROR LOGS IN COMMENT
           echo "=== STEP 1: Parsing error logs for file paths ===" >> "$DEBUG_FILE"
 
-          COMMENT_TEXT="${{ github.event.comment.body || github.event.review.body }}"
+          COMMENT_TEXT="${COMMENT_BODY}"
 
           echo "$COMMENT_TEXT" | grep -oE '[a-zA-Z0-9_./\-]+\.(js|ts|jsx|tsx|py|go|java|rb|php|c|cpp|h|rs|vue|svelte|mjs|cjs|css|scss|json|yml|yaml|toml|ini|cfg|xml|html|md|sh|bash)' 2>/dev/null | sort -u | head -30 > /tmp/comment_files.txt || true
 
@@ -353,12 +355,17 @@ jobs:
 
       - name: Save Original Request
         if: steps.validate.outputs.skip != 'true'
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body || github.event.review.body }}
         run: |
-          printf '%s\n' "${{ github.event.comment.body || github.event.review.body }}" > /tmp/original_request.txt
+          printf '%s\n' "${COMMENT_BODY}" > /tmp/original_request.txt
 
       - name: Build Analysis Prompt
         if: steps.validate.outputs.skip != 'true'
         id: build_analysis
+        env:
+          ISSUE_NUM: ${{ github.event.issue.number || github.event.pull_request.number }}
+          EVENT_TYPE: ${{ steps.validate.outputs.event_type }}
         run: |
           set -euo pipefail
 
@@ -462,6 +469,7 @@ jobs:
 
           metrics = open('/tmp/context_metrics.json', 'r').read().strip() if os.path.exists('/tmp/context_metrics.json') else ''
           request = open('/tmp/original_request.txt', 'r').read().strip() if os.path.exists('/tmp/original_request.txt') else ''
+          code_context = open('/tmp/code_context.txt', 'r').read() if os.path.exists('/tmp/code_context.txt') else ''
           repo = os.environ.get('GITHUB_REPOSITORY', '')
           issue_num = os.environ.get('ISSUE_NUM', '')
           event_type = os.environ.get('EVENT_TYPE', '')
@@ -472,6 +480,7 @@ jobs:
               '{{ISSUE_NUM}}': issue_num,
               '{{EVENT_TYPE}}': event_type,
               '{{REQUEST}}': request,
+              '{{CODE_CONTEXT}}': code_context,
           }
 
           for placeholder, value in replacements.items():
