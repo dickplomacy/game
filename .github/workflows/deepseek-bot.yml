@@ -21,7 +21,7 @@ env:
 jobs:
   respond:
     if: |
-      contains(github.event.comment.body, '@deepseek') || 
+      contains(github.event.comment.body, '@deepseek') ||
       contains(github.event.review.body, '@deepseek')
     runs-on: ubuntu-latest
 
@@ -345,7 +345,10 @@ jobs:
           fi
 
       # ==========================================================================
-      # PHASE 2: BUILD PROMPTS
+      # PHASE 2: BUILD PROMPTS & API CALLS (CORRECTLY ORDERED)
+      # FIX: Build Implementation Prompt was originally before Run Analysis Phase,
+      # meaning it always read an empty /tmp/analysis_response.txt. The steps are
+      # now reordered: Analysis prompt → Analysis API call → Impl prompt → Impl API call.
       # ==========================================================================
 
       - name: Save Original Request
@@ -481,8 +484,102 @@ jobs:
           echo "✓ Analysis prompt built ($(wc -c < /tmp/analysis_prompt.txt) bytes)"
           echo "prompt_size=$(wc -c < /tmp/analysis_prompt.txt)" >> $GITHUB_OUTPUT
 
-      - name: Build Implementation Prompt
+      # ==========================================================================
+      # PHASE 3: API CALLS
+      # ==========================================================================
+
+      - name: Run Analysis Phase
         if: steps.validate.outputs.skip != 'true'
+        id: analysis
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          REQUEST_FILE="/tmp/analysis_request.json"
+          PROMPT_CONTENT=$(cat /tmp/analysis_prompt.txt)
+
+          ESCAPED_PROMPT=$(printf '%s' "${PROMPT_CONTENT}" | jq -Rs '.')
+
+          # FIX: Upgraded from deepseek-chat to deepseek-reasoner (DeepSeek-R1).
+          # deepseek-reasoner uses extended chain-of-thought reasoning, making it
+          # significantly better at root-cause analysis and complex problem solving.
+          jq -n \
+            --argjson prompt "${ESCAPED_PROMPT}" \
+            '{
+              model: "deepseek-reasoner",
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a Principal Software Engineer with 15+ years of experience. Analyze problems THOROUGHLY. Show your reasoning. Think step-by-step before concluding. Always provide complete, working implementations. Never truncate code."
+                },
+                {
+                  role: "user",
+                  content: $prompt
+                }
+              ],
+              temperature: 0.15,
+              top_p: 0.9,
+              max_tokens: 32000,
+              stream: false
+            }' > "$REQUEST_FILE"
+
+          echo "Sending analysis request..."
+
+          MAX_ATTEMPTS=3
+          SUCCESS=false
+
+          for i in 1 2 3; do
+            echo "Attempt ${i}/${MAX_ATTEMPTS}..."
+
+            HTTP_RESPONSE=$(curl -sS \
+              -X POST https://api.deepseek.com/v1/chat/completions \
+              -H "Authorization: Bearer ${DEEPSEEK_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -w "\nHTTP_CODE:%{http_code}" \
+              -d @"${REQUEST_FILE}" \
+              -o /tmp/analysis_raw_response.txt 2>&1) || true
+
+            HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -1 | grep -o 'HTTP_CODE:[0-9]*' | cut -d: -f2 || echo "0")
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              RESPONSE_STATUS=$(jq -r '.object // empty' /tmp/analysis_raw_response.txt 2>/dev/null)
+              if [ "$RESPONSE_STATUS" = "chat.completion" ]; then
+                CONTENT_LENGTH=$(jq -r '.choices[0].message.content | length' /tmp/analysis_raw_response.txt 2>/dev/null || echo "0")
+
+                if [ "$CONTENT_LENGTH" -gt 100 ]; then
+                  echo "✓ Analysis succeeded (${CONTENT_LENGTH} characters)"
+
+                  jq -r '.choices[0].message.content' /tmp/analysis_raw_response.txt > /tmp/analysis_response.txt
+
+                  echo "status=success" >> $GITHUB_OUTPUT
+                  echo "content_length=${CONTENT_LENGTH}" >> $GITHUB_OUTPUT
+                  SUCCESS=true
+                  break
+                fi
+              fi
+            fi
+
+            ERROR_DETAIL=$(jq -r '.error.message // "Unknown error"' /tmp/analysis_raw_response.txt 2>/dev/null) || true
+            echo "⚠ Attempt ${i} failed: HTTP ${HTTP_CODE} - ${ERROR_DETAIL}"
+
+            if [ "$i" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((i * 2))
+            fi
+          done
+
+          if [ "$SUCCESS" != "true" ]; then
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "error=Analysis failed after ${MAX_ATTEMPTS} attempts" >> $GITHUB_OUTPUT
+            echo "::error::Analysis phase failed. See logs for details."
+            exit 1
+          fi
+
+      # FIX: Build Implementation Prompt now runs AFTER Run Analysis Phase so that
+      # /tmp/analysis_response.txt actually exists when this step reads it.
+      - name: Build Implementation Prompt
+        if: steps.validate.outputs.skip != 'true' && steps.analysis.outputs.status == 'success'
         id: build_impl
         run: |
           set -euo pipefail
@@ -597,95 +694,6 @@ jobs:
           echo "✓ Implementation prompt built ($(wc -c < /tmp/impl_prompt.txt) bytes)"
           echo "prompt_size=$(wc -c < /tmp/impl_prompt.txt)" >> $GITHUB_OUTPUT
 
-      # ==========================================================================
-      # PHASE 3: API CALLS
-      # ==========================================================================
-
-      - name: Run Analysis Phase
-        if: steps.validate.outputs.skip != 'true'
-        id: analysis
-        env:
-          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: |
-          set -euo pipefail
-
-          REQUEST_FILE="/tmp/analysis_request.json"
-          PROMPT_CONTENT=$(cat /tmp/analysis_prompt.txt)
-
-          ESCAPED_PROMPT=$(printf '%s' "${PROMPT_CONTENT}" | jq -Rs '.')
-
-          jq -n \
-            --argjson prompt "${ESCAPED_PROMPT}" \
-            '{
-              model: "deepseek-chat",
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a Principal Software Engineer with 15+ years of experience. Analyze problems THOROUGHLY. Show your reasoning. Think step-by-step before concluding."
-                },
-                {
-                  role: "user",
-                  content: $prompt
-                }
-              ],
-              temperature: 0.15,
-              top_p: 0.9,
-              max_tokens: 16000,
-              stream: false
-            }' > "$REQUEST_FILE"
-
-          echo "Sending analysis request..."
-
-          MAX_ATTEMPTS=3
-          SUCCESS=false
-
-          for i in 1 2 3; do
-            echo "Attempt ${i}/${MAX_ATTEMPTS}..."
-
-            HTTP_RESPONSE=$(curl -sS \
-              -X POST https://api.deepseek.com/v1/chat/completions \
-              -H "Authorization: Bearer ${DEEPSEEK_KEY}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -w "\nHTTP_CODE:%{http_code}" \
-              -d @"${REQUEST_FILE}" \
-              -o /tmp/analysis_raw_response.txt 2>&1) || true
-
-            HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -1 | grep -o 'HTTP_CODE:[0-9]*' | cut -d: -f2 || echo "0")
-
-            if [ "$HTTP_CODE" = "200" ]; then
-              RESPONSE_STATUS=$(jq -r '.object // empty' /tmp/analysis_raw_response.txt 2>/dev/null)
-              if [ "$RESPONSE_STATUS" = "chat.completion" ]; then
-                CONTENT_LENGTH=$(jq -r '.choices[0].message.content | length' /tmp/analysis_raw_response.txt 2>/dev/null || echo "0")
-
-                if [ "$CONTENT_LENGTH" -gt 100 ]; then
-                  echo "✓ Analysis succeeded (${CONTENT_LENGTH} characters)"
-
-                  jq -r '.choices[0].message.content' /tmp/analysis_raw_response.txt > /tmp/analysis_response.txt
-
-                  echo "status=success" >> $GITHUB_OUTPUT
-                  echo "content_length=${CONTENT_LENGTH}" >> $GITHUB_OUTPUT
-                  SUCCESS=true
-                  break
-                fi
-              fi
-            fi
-
-            ERROR_DETAIL=$(jq -r '.error.message // "Unknown error"' /tmp/analysis_raw_response.txt 2>/dev/null) || true
-            echo "⚠ Attempt ${i} failed: HTTP ${HTTP_CODE} - ${ERROR_DETAIL}"
-
-            if [ "$i" -lt "$MAX_ATTEMPTS" ]; then
-              sleep $((i * 2))
-            fi
-          done
-
-          if [ "$SUCCESS" != "true" ]; then
-            echo "status=failure" >> $GITHUB_OUTPUT
-            echo "error=Analysis failed after ${MAX_ATTEMPTS} attempts" >> $GITHUB_OUTPUT
-            echo "::error::Analysis phase failed. See logs for details."
-            exit 1
-          fi
-
       - name: Run Implementation Phase
         if: steps.validate.outputs.skip != 'true' && steps.analysis.outputs.status == 'success'
         id: implementation
@@ -699,14 +707,16 @@ jobs:
 
           ESCAPED_PROMPT=$(printf '%s' "${PROMPT_CONTENT}" | jq -Rs '.')
 
+          # FIX: Upgraded from deepseek-chat to deepseek-reasoner and increased
+          # max_tokens to 32000 to handle larger codebases without truncation.
           jq -n \
             --argjson prompt "${ESCAPED_PROMPT}" \
             '{
-              model: "deepseek-chat",
+              model: "deepseek-reasoner",
               messages: [
                 {
                   role: "system",
-                  content: "You are a Senior Software Engineer. Generate COMPLETE production-ready code files. Follow the output format EXACTLY. NEVER truncate files. Provide FULL implementations."
+                  content: "You are an expert software engineer. Always provide complete, working implementations. Never truncate code. Think through problems step by step before writing code. Follow the output format EXACTLY. NEVER use ellipses or placeholders."
                 },
                 {
                   role: "user",
@@ -715,9 +725,7 @@ jobs:
               ],
               temperature: 0.1,
               top_p: 0.95,
-              frequency_penalty: 0.1,
-              presence_penalty: 0.1,
-              max_tokens: 24000,
+              max_tokens: 32000,
               stream: false
             }' > "$REQUEST_FILE"
 
@@ -775,6 +783,25 @@ jobs:
       # PHASE 4: EXTRACT AND APPLY FIXES
       # ==========================================================================
 
+      # FIX: Create a dedicated fix branch before committing. Without this step,
+      # the workflow committed directly to the default branch and then tried to
+      # open a PR from main to main, which always fails.
+      - name: Create Fix Branch
+        if: steps.validate.outputs.skip != 'true' && steps.analysis.outputs.status == 'success'
+        id: create_branch
+        run: |
+          set -euo pipefail
+
+          ISSUE_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
+          BRANCH_NAME="deepseek/fix-${ISSUE_NUM}-$(date +%s)"
+
+          git config user.email "${BOT_EMAIL}"
+          git config user.name "${BOT_NAME}"
+          git checkout -b "$BRANCH_NAME"
+
+          echo "branch_name=${BRANCH_NAME}" >> $GITHUB_OUTPUT
+          echo "✓ Created branch: ${BRANCH_NAME}"
+
       - name: Extract Code Blocks and Apply Fixes
         if: steps.validate.outputs.skip != 'true' && steps.implementation.outputs.status == 'success'
         id: apply_fixes
@@ -816,9 +843,16 @@ jobs:
             print "=== Processing block " block_num " ===" >> "/tmp/extraction_log.txt"
             print "Raw path: \"" line "\"" >> "/tmp/extraction_log.txt"
 
-            if (match(line, /^[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z]+$/) && index(line, "/") > 0 || index(line, "\\") > 0) {
+            # FIX: Operator precedence bug — the original condition was:
+            #   (match(...) && index(line,"/") > 0) || index(line,"\\") > 0
+            # meaning any line with a backslash was accepted. Added parentheses
+            # to correctly require match() AND (has slash OR has backslash).
+            if (match(line, /^[a-zA-Z0-9_\-\.\/]+\.[a-zA-Z]+$/) && (index(line, "/") > 0 || index(line, "\\") > 0)) {
               gsub(/^\.\//, "", line)
-              gsub(/\/\/+/g, "/", line)
+              # FIX: Removed erroneous /g flag from gsub. In awk, gsub() is already
+              # global by default; the trailing g was parsed as a literal character
+              # making the regex match "//g" instead of two-or-more slashes.
+              gsub(/\/\/+/, "/", line)
 
               current_file = line
               block_start_line = total_lines_processed
@@ -899,9 +933,6 @@ jobs:
             echo "Staged ${STAGED_COUNT} files"
 
             if ! git diff --cached --quiet; then
-              git config user.email "${BOT_EMAIL}"
-              git config user.name "${BOT_NAME}"
-
               ISSUE_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
 
               # Use sed instead of tr to avoid range-order errors
@@ -910,7 +941,9 @@ jobs:
 
               echo "✓ Commit created"
 
-              BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+              # FIX: Use the branch created by the Create Fix Branch step instead of
+              # reading the current HEAD, which was previously the default branch.
+              BRANCH_NAME="${{ steps.create_branch.outputs.branch_name }}"
               git push -u origin "$BRANCH_NAME"
               echo "✓ Pushed to ${BRANCH_NAME}"
 
@@ -950,7 +983,8 @@ jobs:
           set -euo pipefail
 
           BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
-          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          # FIX: Use the branch created by Create Fix Branch step, not the current HEAD.
+          BRANCH_NAME="${{ steps.create_branch.outputs.branch_name }}"
           ISSUE_NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
           TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
@@ -987,6 +1021,11 @@ jobs:
           printf '\n' >> /tmp/pr_body.txt
           printf 'Created: %s\n' "${TIMESTAMP}" >> /tmp/pr_body.txt
 
+          # FIX: Create the "automated" label before using it. Without this, gh pr create
+          # silently fails when the label doesn't exist; PR_URL then captures the error
+          # message instead of the URL, breaking the notification step.
+          gh label create "automated" --color "0075ca" --description "Automated PR" 2>/dev/null || true
+
           # Create the PR
           PR_URL=$(gh pr create \
             --title "[DeepSeek] Fix #${ISSUE_NUM}" \
@@ -998,7 +1037,7 @@ jobs:
           if [ -n "${PR_URL}" ] && [ "${PR_URL}" != "true" ]; then
             echo "url=${PR_URL}" >> $GITHUB_OUTPUT
             echo "PR created successfully: ${PR_URL}"
-            
+
             # Build notification message using ONLY printf - NO HEREDOCS
             : > /tmp/notify_msg.txt
             printf 'Pull Request Created:\n' >> /tmp/notify_msg.txt
@@ -1008,7 +1047,7 @@ jobs:
             printf 'The fix has been implemented and is ready for review.\n' >> /tmp/notify_msg.txt
             printf '\n' >> /tmp/notify_msg.txt
             printf 'Files changed:\n' >> /tmp/notify_msg.txt
-            
+
             if [ -f /tmp/files_to_commit.txt ] && [ -s /tmp/files_to_commit.txt ]; then
               cat /tmp/files_to_commit.txt | head -10 | while IFS= read -r f; do
                 printf -- '  - %s\n' "$f" >> /tmp/notify_msg.txt
@@ -1020,7 +1059,7 @@ jobs:
             gh issue comment "${ISSUE_NUM}" \
               --repo "${{ github.repository }}" \
               --body-file /tmp/notify_msg.txt 2>/dev/null || true
-            
+
             echo "Notification posted to issue #${ISSUE_NUM}"
           else
             echo "PR creation failed or URL not captured"
