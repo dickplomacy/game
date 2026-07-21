@@ -238,6 +238,8 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
   const [lastPhaseLog, setLastPhaseLog] = useState(null);
   // Full order-history dialog visibility
   const [showHistory, setShowHistory] = useState(false);
+  // Pending confirm-before-submit action: null | { fn: Function, label: string }
+  const [confirmAction, setConfirmAction] = useState(null);
 
   // Sidebar tab: 'orders' | 'press' | 'treaties'
   const [sidebarTab, setSidebarTab] = useState('orders');
@@ -922,7 +924,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   const retreatSubmitted = myDislodged.every(d => gameData?.retreatPhase?.retreatOrders?.[d.unit.id]);
                   if (retreatSubmitted) return <div style={{ padding: '7px 6px', fontWeight: 'bold', background: '#2a6e2a', color: '#fff', borderRadius: 4, fontSize: 12, textAlign: 'center' }}>✓ Retreat Submitted</div>;
                   const allChosen = myDislodged.every(d => retreatPhase.retreatOrders[d.unit.id]);
-                  return <button onClick={handleSubmitRetreatsMultiplayer} disabled={!allChosen} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: allChosen ? 'pointer' : 'default', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: allChosen ? 1 : 0.5 }}>▶ Submit Retreat</button>;
+                  return <button onClick={() => setConfirmAction({ fn: handleSubmitRetreatsMultiplayer, label: 'submit your retreats' })} disabled={!allChosen} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: allChosen ? 'pointer' : 'default', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: allChosen ? 1 : 0.5 }}>▶ Submit Retreat</button>;
                 })()
               ) : (
                 <button onClick={submitRetreats} disabled={retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id])} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: 'pointer', background: '#8a0000', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: retreatPhase.dislodged.some(d => !retreatPhase.retreatOrders[d.unit.id]) ? 0.5 : 1 }}>▶ Submit Retreats</button>
@@ -993,7 +995,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   if (adj < 0) return (winterOrders[p]?.disbands?.length ?? 0) === Math.abs(adj);
                   return true;
                 });
-                return <button onClick={handleSubmitWinterOrders} disabled={!canSubmit} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: canSubmit ? 'pointer' : 'default', background: '#4a0080', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: canSubmit ? 1 : 0.5 }}>▶ Submit Adjustments</button>;
+                return <button onClick={() => setConfirmAction({ fn: handleSubmitWinterOrders, label: 'submit your adjustments' })} disabled={!canSubmit} style={{ padding: '7px 6px', fontWeight: 'bold', cursor: canSubmit ? 'pointer' : 'default', background: '#4a0080', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: canSubmit ? 1 : 0.5 }}>▶ Submit Adjustments</button>;
               })()}
             </>
           ) : (
@@ -1051,7 +1053,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
                   </div>
                 ) : isSaved ? (
                   <button
-                    onClick={handleSubmitOrders}
+                    onClick={() => setConfirmAction({ fn: handleSubmitOrders, label: 'submit your orders' })}
                     disabled={submitting}
                     style={{ padding: '7px 6px', fontWeight: 'bold', cursor: submitting ? 'default' : 'pointer', background: '#1a5c8a', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, letterSpacing: '0.03em', opacity: submitting ? 0.6 : 1 }}
                   >
@@ -1329,6 +1331,26 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
       </div>
       {showHistory && (
         <FullOrderHistory history={gameData?.history ?? []} onClose={() => setShowHistory(false)} />
+      )}
+      {confirmAction && (
+        <div onClick={() => setConfirmAction(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 'min(320px, 90vw)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', textAlign: 'center' }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Are you sure?</div>
+            <div style={{ color: '#555', fontSize: 13, marginBottom: 20 }}>
+              Once submitted you cannot change your orders unless you unsubmit.
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                onClick={() => setConfirmAction(null)}
+                style={{ padding: '8px 20px', cursor: 'pointer', background: '#eee', border: '1px solid #ccc', borderRadius: 4, fontSize: 14, fontWeight: 600 }}
+              >Cancel</button>
+              <button
+                onClick={() => { confirmAction.fn(); setConfirmAction(null); }}
+                style={{ padding: '8px 20px', cursor: 'pointer', background: '#1a5c8a', color: '#fff', border: 'none', borderRadius: 4, fontSize: 14, fontWeight: 700 }}
+              >Confirm</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
