@@ -597,13 +597,16 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     });
   }
 
-  function runResolver(unitList, orderMap) {
+  function runResolver(unitList, orderMap, passivePwrs = []) {
     const result = resolve(unitList, orderMap);
-    const pending = result.dislodged.filter(d => d.retreatOptions.length > 1);
     const autoOrders = {};
+    const pending = [];
     result.dislodged.forEach(d => {
-      if (d.retreatOptions.length === 1) autoOrders[d.unit.id] = d.retreatOptions[0];
-      else if (d.retreatOptions.length === 0) autoOrders[d.unit.id] = 'disband';
+      if (passivePwrs.includes(d.unit.power) || d.retreatOptions.length === 0) {
+        autoOrders[d.unit.id] = 'disband';
+      } else {
+        pending.push(d);
+      }
     });
     return { result, pending, autoOrders };
   }
@@ -629,7 +632,7 @@ function App({ gameData = null, role = null, gameCode = null, playerToken = null
     Object.values(gameData.orders ?? {}).forEach(powerOrders => {
       if (powerOrders) Object.assign(flatOrders, powerOrders);
     });
-    const { result, pending, autoOrders } = runResolver(gameData.units ?? units, flatOrders);
+    const { result, pending, autoOrders } = runResolver(gameData.units ?? units, flatOrders, passivePowers);
     const isFall = gameData.phase === 'fall-move';
     // Always use Firestore-authoritative owners to avoid stale React state (e.g. during auto-resolve)
     const currentOwners = gameData.owners ?? owners;
